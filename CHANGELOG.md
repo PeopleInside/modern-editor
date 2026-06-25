@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.1.4
+Version increasing
+
 ## v1.1.0
 * Hid the TinyMCE 7 "Get all features" promotion button.
 * Fully translated all developer comments, user-facing loading/error states, and code annotations from Italian to English.
