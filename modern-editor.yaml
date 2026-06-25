@@ -1,5 +1,5 @@
 enabled: true
 height: 500
-menubar: false
+menubar: true
 plugins: "lists link image table code fullscreen searchreplace media"
-toolbar: "undo redo | blocks | bold italic underline | bullist numlist | link image media table | code fullscreen"
+toolbar: "undo redo | blocks | bold italic underline forecolor backcolor | bullist numlist | link image media table | code fullscreen"

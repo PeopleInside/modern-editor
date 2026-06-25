@@ -1,17 +1,25 @@
 name: Modern Editor
 version: 1.1.0
-description: "Editor visuale WYSIWYG (basato su TinyMCE) per il contenuto delle pagine, compatibile con Admin Next (Grav 2.0)."
+description: "Modern visual WYSIWYG editor (based on TinyMCE) for page content, compatible with Admin Next (Grav 2.0)."
 icon: edit
 author:
-  name: Il tuo nome
-  email: tuo@email.it
-homepage: https://github.com/tuonome/grav-plugin-modern-editor
+  name: PeopleInside
+  email: tickets@peopleinside-it.p.tawk.email
+homepage: https://github.com/PeopleInside/modern-editor
 keywords: grav, plugin, editor, wysiwyg, admin-next, visual editor
-bugs: https://github.com/tuonome/grav-plugin-modern-editor/issues
+bugs: https://github.com/PeopleInside/modern-editor/issues
 license: MIT
 
 compatibility:
   - "2.0"
+
+rules:
+  gpm:
+    grav:
+      version: '>=2.0.0'
+
+dependencies:
+  - { name: grav, version: '>=2.0.0' }
 
 form:
   fields:
@@ -39,7 +47,7 @@ form:
       type: toggle
       label: PLUGIN_MODERN_EDITOR.MENUBAR
       help: PLUGIN_MODERN_EDITOR.MENUBAR_HELP
-      default: false
+      default: true
       options:
         1: PLUGIN_ADMIN.ENABLED
         0: PLUGIN_ADMIN.DISABLED
@@ -56,4 +64,4 @@ form:
       type: text
       label: PLUGIN_MODERN_EDITOR.TOOLBAR
       help: PLUGIN_MODERN_EDITOR.TOOLBAR_HELP
-      default: "undo redo | blocks | bold italic underline | bullist numlist | link image media table | code fullscreen"
+      default: "undo redo | blocks | bold italic underline forecolor backcolor | bullist numlist | link image media table | code fullscreen"

@@ -1,137 +1,90 @@
-# Modern Editor per Grav 2.0 (Admin Next)
+# Modern Editor for Grav 2.0 (Admin Next)
 
-Editor visuale WYSIWYG (basato su [TinyMCE](https://www.tiny.cloud/)) per il campo
-contenuto delle pagine, compatibile con **Admin Next** (l'admin di Grav 2.0).
+A modern visual WYSIWYG editor (powered by [TinyMCE](https://www.tiny.cloud/)) for the page content field, fully compatible with **Admin Next** (the brand-new admin interface for Grav 2.0).
 
-## Installazione
+---
 
-1. **Se avevi installato una versione precedente di questo plugin** (es. con
-   nome `tinymce-editor`), **disinstallala prima** per evitare conflitti:
-   elimina `user/plugins/tinymce-editor/` (o disinstalla da Admin Next).
-2. Estrai il contenuto dello zip dentro `user/plugins/modern-editor/`
-   (la cartella finale deve contenere `modern-editor.php` direttamente).
-3. Svuota la cache:
-   ```
+## Installation
+
+1. **If you have a previous version of this plugin installed** (e.g., named `tinymce-editor`), **please uninstall it first** to avoid conflicts:
+   Delete the directory `user/plugins/tinymce-editor/` (or uninstall it via Admin Next).
+2. Extract the contents of this plugin into `user/plugins/modern-editor/` (the directory should contain `modern-editor.php` directly).
+3. Clear your Grav cache:
+   ```bash
    bin/grav clear-cache
    ```
-4. **Fai logout e login di nuovo** in Admin Next (importante: Admin Next
-   carica una sola volta, al login, l'elenco dei campi custom disponibili;
-   se resti nella vecchia sessione potrebbe non vedere il nuovo plugin).
-5. Vai su Admin Next → Plugins e assicurati che **Modern Editor** sia abilitato.
-6. Apri una pagina qualsiasi in modifica: il campo "Contenuto" dovrebbe mostrare
-   l'editor visuale invece del markdown editor di default.
+4. **Log out and log back in** to Admin Next. *Important:* Admin Next loads the list of available custom field Web Components only once per session upon login. If you stay in the old session, it might not register the new plugin field.
+5. Navigate to Admin Next → Plugins and ensure that **Modern Editor** is enabled.
+6. Open any page to edit: the "Content" field will now show the visual WYSIWYG editor instead of the default Markdown editor!
 
-Non è richiesto nessun comando `composer install` o `npm install`: l'editor
-viene caricato direttamente da CDN (jsdelivr) al volo dal browser.
+No `composer install` or `npm install` is required; the visual editor is loaded directly from jsDelivr CDN on the fly in the administrator's browser.
 
-## Come funziona l'override del campo (senza toccare il tema)
+---
 
-Questa è la parte più delicata del plugin, quindi vale la pena spiegarla.
+## How Field Overrides Work (No Theme Modifications Required)
 
-Grav unisce i blueprint di pagina (gli schemi che definiscono i campi del
-form di modifica) leggendo file YAML da più cartelle, tramite un meccanismo
-chiamato `@extends` + lo stream `blueprints://pages`. Un file può "estendere"
-un template esistente (es. `default`, `item`, `blog`) e sovrascrivere solo
-i campi che gli interessano, lasciando intatto il resto.
+Grav resolves page blueprints (the schemas defining edit fields) by merging YAML files from multiple directories using the standard `@extends` mechanism via the `blueprints://pages` stream. A blueprint file can extend an existing page template (e.g., `default`, `item`, `blog`) and override specific fields, leaving everything else intact.
 
-Questo plugin, all'avvio (evento `onGetPageBlueprints`):
+At startup (during the `onGetPageBlueprints` event), this plugin:
 
-1. **Scansiona i template del tuo tema attivo** (tutti i file `.html.twig`
-   dentro `templates/` del tema, escludendo `error`, `modular`, `partials`).
-2. **Genera automaticamente, in cache** (`cache/modern-editor/blueprints/pages/`),
-   un piccolo file YAML per ciascun template trovato, che estende quel
-   template e sovrascrive solo il campo `content` con `type: moderneditor`.
-3. **Registra quella cartella di cache** nello stream `blueprints://pages`,
-   cosi' Grav la unisce esattamente come farebbe con un file scritto a mano
-   nel tema.
+1. **Scans the active theme templates** (all `.html.twig` files inside the theme's `templates/` folder, excluding utility layouts like `error`, `modular`, `partials`, and `forms`).
+2. **Dynamically generates override files in the cache** (`cache/modern-editor/blueprints/pages/`). For each discovered template, a small YAML file is created to extend it and override only the `content` field to be of type `moderneditor`.
+3. **Registers the generated cache folder** within the `blueprints://pages` stream, so Grav merges it automatically just as if you had written it by hand inside your theme.
 
-Il risultato: l'editor visuale appare automaticamente su **tutti** i template
-di pagina del tuo tema, presenti e futuri, senza che tu debba scrivere o
-copiare nulla a mano. Se cambi le opzioni del plugin (altezza, toolbar, ecc.)
-da Admin Next, i file generati vengono rigenerati automaticamente al primo
-caricamento successivo.
+**The result:** The visual editor automatically appears on **all** current and future page templates of your active theme without requiring any manual editing or template copying. If you change plugin options (height, toolbar, etc.) from Admin Next, the cached files are automatically regenerated upon the next page load.
 
-Se vuoi **escludere** l'editor da un template specifico, o personalizzarlo
-diversamente per un singolo template, puoi creare a mano un file con priorità
-più alta in `blueprints/pages/<nometemplate>.yaml` dentro questo plugin (la
-cartella esiste già, vuota, pronta all'uso) — non è necessario per il
-funzionamento di base, è solo per personalizzazioni avanzate.
+If you wish to **exclude** the editor from a specific template or customize it differently on a per-template basis, you can manually create a high-priority file at `blueprints/pages/<templatename>.yaml` inside this plugin. (The directory is created empty, ready for advanced overrides).
 
-## L'editor non appare? Come fare debug
+---
 
-1. **Svuota la cache + fai logout/login** (vedi Installazione, punti 3-4).
-   Questo risolve la maggioranza dei casi: sia perché i blueprint generati
-   vengono ricreati, sia perché Admin Next ricarica il registro dei campi.
+## Troubleshooting & Diagnostics
 
-2. **Controlla che la cartella sia stata generata**, via SSH/FTP:
-   ```
+If the editor does not appear, follow these steps:
+
+1. **Clear cache + Log out and log back in** (see Installation steps 3 & 4). This resolves the vast majority of issues because it forces the regeneration of blueprints and clears Admin Next's field cache.
+2. **Check if the cached blueprints are being generated** via SSH/FTP:
+   ```bash
    user/cache/modern-editor/blueprints/pages/
    ```
-   Dovresti trovare un file `.yaml` per ogni template del tuo tema (es.
-   `default.yaml`, eventualmente `item.yaml`, `blog.yaml`, ecc.) — apri uno
-   di questi file e verifica che contenga `type: moderneditor` nella sezione
-   `content`. Se la cartella non esiste affatto, il problema è che l'evento
-   `onGetPageBlueprints` non sta scattando sul tuo setup (vedi punto 4).
-
-3. **Verifica via API se il blueprint risolto è corretto.** Dalla console
-   del browser, loggato in Admin Next sulla pagina di modifica:
-   ```js
+   You should see a `.yaml` file for each page template of your theme (e.g., `default.yaml`, `item.yaml`, etc.). Open one to verify it contains `type: moderneditor` under `content`. If the folder is empty or doesn't exist, the `onGetPageBlueprints` event is not firing in your setup.
+3. **Inspect the resolved blueprint via API.** In your browser console on the Admin Next edit page:
+   ```javascript
    fetch(window.__GRAV_API_SERVER_URL + (window.__GRAV_API_PREFIX || '/api/v1') + '/blueprints/pages/default', {
      headers: { 'X-API-Token': window.__GRAV_API_TOKEN || '' }
    }).then(r => r.json()).then(j => console.log(JSON.stringify(j, null, 2)));
    ```
-   (sostituisci `default` con il template della tua pagina, se diverso).
-   Cerca il campo `content` dentro `tabs.fields.content.fields.content`:
-   deve riportare `"type": "moderneditor"`.
+   *(Replace `default` with the actual page template name if necessary).*
+   Look for the `content` field inside `tabs.fields.content.fields.content`: it must report `"type": "moderneditor"`.
+4. **Inspect the browser console (F12)** on the edit page for JavaScript errors and check the Network tab to ensure that requests to `cdn.jsdelivr.net/npm/tinymce` are succeeding. If the blueprint API reports `moderneditor` but the field does not load, the issue lies in the Custom Element registration rather than the blueprint merge.
 
-4. **Se il file in cache esiste ma il blueprint risolto via API riporta
-   ancora `"type": "markdown"`**, significa che il plugin API di Admin Next
-   non sta leggendo lo stream `blueprints://pages` nello stesso modo
-   dell'admin classico per costruire questo endpoint specifico. In tal caso,
-   scrivimi (o apri una issue) cosa restituisce esattamente il punto 3, così
-   posso capire dove sta divergendo e correggere di conseguenza — è un'area
-   di Grav 2.0 ancora molto nuova e non interamente documentata.
+---
 
-5. **Controlla la console del browser (F12)** sulla pagina di modifica per
-   eventuali errori JS, e la tab Network per verificare se parte una
-   richiesta verso `cdn.jsdelivr.net/npm/tinymce`. Se il blueprint è corretto
-   (punto 3 ok) ma non parte questa richiesta, il problema è nel mount del
-   web component, non nel blueprint — caso diverso e più facile da isolare.
+## Configuration
 
-## Configurazione
+From Admin Next → Plugins → Modern Editor, you can easily customize:
+- **Editor Height**: The height in pixels of the visual editing canvas.
+- **Menubar Visibility**: Show or hide the top menu bar (File, Edit, Insert, etc.).
+- **Active Plugins**: Space-separated list of TinyMCE plugins to load.
+- **Toolbar Configuration**: Complete layout of buttons and groupings.
 
-Da Admin Next → Plugins → Modern Editor puoi modificare altezza, toolbar,
-menu bar e plugin TinyMCE caricati per tutti i template.
+---
 
-## Dark mode
+## Known Limitations
 
-L'editor rileva automaticamente se Admin Next è in modalità scura (classe
-`dark`/attributo `data-theme` su `<html>`, o preferenza di sistema se Admin
-Next è su "Auto") e applica lo skin scuro nativo di TinyMCE (`oxide-dark` +
-`content_css: dark`). Il cambio di tema dall'interno di Admin Next (Settings
-→ Appearance) viene rilevato in automatico e l'editor si ricarica con lo
-skin corretto, senza bisogno di ricaricare la pagina.
+- **HTML Content**: The content exchanged with the form is **HTML**, not Markdown.
+- **CDN Dependency**: TinyMCE is loaded from a public CDN, requiring internet access on the administrator's browser. If your site implements a highly restrictive Content Security Policy (CSP), the script might be blocked unless configured to trust jsdelivr.net.
+- **Modular Templates**: Modular page templates (inside the theme's `templates/modular/` directory) are excluded from automatic generation. To use the editor there, add a manual override blueprint.
 
-## ⚠️ Limiti conosciuti
+---
 
-- Il contenuto scambiato con il form è **HTML**, non Markdown.
-- TinyMCE viene caricato da CDN pubblico: serve accesso a internet dal
-  browser dell'amministratore; se il sito ha una CSP restrittiva sugli
-  script esterni, l'editor non si carica.
-- Non c'è integrazione con il Media Manager nativo di Grav per le immagini.
-- I template modulari (cartella `templates/modular/` del tema) sono
-  esclusi dalla generazione automatica: se usi pagine modulari con un campo
-  "content" che vuoi convertire allo stesso modo, serve un file manuale in
-  `blueprints/pages/` (vedi sopra).
-- Questo plugin non è stato testato su un'installazione Grav 2.0 reale
-  prima del rilascio: la generazione dinamica dei blueprint è un meccanismo
-  ragionato sulla documentazione disponibile, non verificato empiricamente.
-- Se vedi in console un 404 verso `/api/v1/thumbnails/<hash>.png`, non è
-  causato da questo plugin (il componente non genera mai richieste a
-  `thumbnails/`): è probabilmente Admin Next che tenta di generare
-  un'anteprima della pagina basata su un'immagine nel contenuto che non è
-  più raggiungibile. Non impedisce il funzionamento dell'editor.
+## Maintainer & Author
 
-## Licenza
+- **Author**: PeopleInside
+- **Email**: [tickets@peopleinside-it.p.tawk.email](mailto:tickets@peopleinside-it.p.tawk.email)
+- **GitHub Repository**: [https://github.com/PeopleInside/modern-editor](https://github.com/PeopleInside/modern-editor)
 
-MIT
+---
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.

@@ -6,32 +6,32 @@ use Grav\Common\Grav;
 use RocketTheme\Toolbox\Event\Event;
 
 /**
- * Modern Editor Plugin per Grav 2.0
+ * Modern Editor Plugin for Grav 2.0
  *
- * Sostituisce il campo "content" delle pagine (markdown editor di default)
- * con un editor visuale WYSIWYG (TinyMCE), integrato come Custom Field per
- * Admin Next tramite Web Component (admin-next/fields/moderneditor.js).
+ * Replaces the default "content" page field (default markdown editor)
+ * with a visual WYSIWYG editor (TinyMCE), integrated as a Custom Field for
+ * Admin Next using a Web Component (admin-next/fields/moderneditor.js).
  *
- * COME FUNZIONA L'OVERRIDE DEL CAMPO "CONTENT" (senza toccare il tema):
+ * HOW THE "CONTENT" FIELD OVERRIDE WORKS (without modifying the theme):
  *
- * Grav risolve i blueprint di pagina tramite il meccanismo standard
- * "@extends" + lo stream blueprints://pages, che unisce (merge) i file
- * di più fonti (core, tema, plugin). Per ogni template di pagina che il
- * tema attivo definisce (default.html.twig, item.html.twig, ecc.), questo
- * plugin genera AL VOLO — alla cache://blueprints/modern-editor/pages/ —
- * un piccolo file YAML che estende quel template e sovrascrive solo il
- * campo "content" nella tab Contenuto. La cartella generata viene
- * registrata nello stream blueprints://pages tramite onGetPageBlueprints,
- * cosi' Grav la trova e la unisce come farebbe con un file scritto a mano
- * nel tema.
+ * Grav resolves page blueprints via the standard "@extends" mechanism
+ * + the blueprints://pages stream, which merges files from multiple
+ * sources (core, theme, plugins). For each page template defined by the
+ * active theme (default.html.twig, item.html.twig, etc.), this plugin
+ * dynamically generates (at cache://blueprints/modern-editor/pages/)
+ * a small YAML file that extends that template and overrides only the
+ * "content" field in the Content tab. The generated folder is
+ * registered in the blueprints://pages stream via onGetPageBlueprints,
+ * so Grav finds it and merges it as it would with a handwritten file
+ * in the theme.
  *
- * In questo modo l'editor compare su QUALSIASI template del tema, anche
- * se nuovi template vengono aggiunti in futuro, senza che l'utente debba
- * scrivere o copiare nulla a mano.
+ * This way, the editor appears on ANY theme template, even if new
+ * templates are added in the future, without requiring the user to write
+ * or copy anything manually.
  */
 class ModernEditorPlugin extends Plugin
 {
-    /** @var string Percorso (stream) dove vengono generati i blueprint override */
+    /** @var string Path (stream) where the override blueprints are generated */
     protected $generatedPath = 'cache://modern-editor/blueprints/pages';
 
     public static function getSubscribedEvents(): array
@@ -49,15 +49,15 @@ class ModernEditorPlugin extends Plugin
 
         $this->enable([
             'onGetPageBlueprints' => ['onGetPageBlueprints', 0],
-            // Fallback per l'admin classico / Grav 1.7, non fa danno se non scatta.
+            // Fallback for classic admin / Grav 1.7, harmless if it doesn't trigger.
             'onBlueprintCreated' => ['onBlueprintCreated', 0],
         ]);
     }
 
     /**
-     * Genera (se necessario) i blueprint override per ogni template del
-     * tema attivo, poi registra la cartella generata come fonte aggiuntiva
-     * di blueprint di pagina.
+     * Generates (if necessary) the override blueprints for each template
+     * of the active theme, then registers the generated folder as an
+     * additional page blueprint source.
      */
     public function onGetPageBlueprints(Event $event): void
     {
@@ -68,19 +68,18 @@ class ModernEditorPlugin extends Plugin
 
         $this->generateOverrideBlueprints();
 
-        // Registra prima la cartella generata (override per-template),
-        // poi quella statica del plugin (eventuali estensioni manuali
-        // aggiunte dall'utente avanzato, vedi blueprints/pages/).
+        // Register the generated folder first (per-template override),
+        // then the plugin's static folder (any manual extensions
+        // added by advanced users, see blueprints/pages/).
         $types->scanBlueprints($this->generatedPath);
         $types->scanBlueprints('plugin://' . $this->name . '/blueprints');
     }
 
     /**
-     * Scansiona i template di pagina (.html.twig) disponibili nel tema
-     * attivo e nel core, e genera un file di override per ciascuno,
-     * salvandolo nella cache. Vengono rigenerati solo se mancanti o se
-     * la configurazione del plugin e' cambiata (tramite un file di
-     * controllo versione/hash).
+     * Scans page templates (.html.twig) available in the active theme
+     * and core, and generates an override file for each, saving it in
+     * cache. They are regenerated only if missing or if the plugin's
+     * configuration has changed (via a version/hash control file).
      */
     private function generateOverrideBlueprints(): void
     {
@@ -118,24 +117,24 @@ class ModernEditorPlugin extends Plugin
     }
 
     /**
-     * Trova i nomi dei template di pagina (.html.twig) disponibili,
-     * scansionando il tema attivo e Grav core. Modular/partials/error
-     * vengono esclusi perche' non rappresentano pagine editabili "normali".
+     * Finds available page template names (.html.twig) by scanning
+     * the active theme and Grav core. Modular/partials/error are excluded
+     * because they do not represent "normal" editable pages.
      *
-     * @return string[] Elenco di nomi di template, es. ['default', 'item', 'blog']
+     * @return string[] List of template names, e.g. ['default', 'item', 'blog']
      */
     private function discoverPageTemplates($locator): array
     {
         $names = [];
         $dirs = [];
 
-        // Tema attivo.
+        // Active theme.
         $themeTemplates = $locator->findResource('theme://templates', true, true);
         if ($themeTemplates && is_dir($themeTemplates)) {
             $dirs[] = $themeTemplates;
         }
 
-        // Template di pagina aggiunti da altri plugin.
+        // Page templates added by other plugins.
         foreach ((array) $locator->findResources('theme://templates') as $dir) {
             if (is_dir($dir)) {
                 $dirs[] = $dir;
@@ -151,8 +150,8 @@ class ModernEditorPlugin extends Plugin
                 if (in_array($base, $exclude, true)) {
                     continue;
                 }
-                // Esclude i template modulari (convenzione: dentro una
-                // sottocartella "modular/"), che vanno trattati a parte.
+                // Excludes modular templates (convention: inside a
+                // "modular/" subdirectory), which are handled separately.
                 if (str_contains($file, '/modular/')) {
                     continue;
                 }
@@ -160,15 +159,15 @@ class ModernEditorPlugin extends Plugin
             }
         }
 
-        // Garantiamo sempre almeno "default", anche se il tema non lo
-        // espone esplicitamente come file fisico.
+        // Always guarantee at least "default", even if the theme doesn't
+        // explicitly expose it as a physical file.
         $names['default'] = true;
 
         return array_keys($names);
     }
 
     /**
-     * Costruisce il contenuto YAML di un singolo file di override.
+     * Builds the YAML content of a single override file.
      */
     private function buildOverrideYaml(string $templateName): string
     {
@@ -184,10 +183,10 @@ class ModernEditorPlugin extends Plugin
         ));
 
         return <<<YAML
-# Generato automaticamente da Modern Editor — non modificare a mano,
-# verra' sovrascritto. Per personalizzare, modifica le impostazioni del
-# plugin in Admin Next, oppure aggiungi un override manuale in
-# blueprints/pages/{$templateName}.yaml dentro questo plugin.
+# Automatically generated by Modern Editor — do not modify by hand,
+# it will be overwritten. To customize, change the plugin's settings
+# in Admin Next, or add a manual override in
+# blueprints/pages/{$templateName}.yaml inside this plugin.
 '@extends':
   type: {$templateName}
   context: blueprints://pages
@@ -215,8 +214,8 @@ YAML;
     }
 
     /**
-     * Fallback per l'admin classico (Grav 1.7): riscrive direttamente
-     * il campo "content" se questo evento dovesse scattare.
+     * Fallback for classic admin (Grav 1.7): directly rewrites
+     * the "content" field if this event is triggered.
      */
     public function onBlueprintCreated(Event $event): void
     {

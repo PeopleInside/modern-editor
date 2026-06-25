@@ -1,22 +1,14 @@
-# v1.1.0
-## [unreleased]
-1. [](#new)
-    * Aggiunto supporto al dark mode: l'editor rileva il tema di Admin Next
-      (classe/attributo su html, o preferenza di sistema) e applica lo skin
-      scuro nativo di TinyMCE, con aggiornamento automatico al cambio tema live
-    * Aggiunta `license_key: 'gpl'` alla configurazione TinyMCE per rimuovere
-      il banner "evaluation mode"
-    * Il wrapper dell'editor usa ora i CSS custom properties di Admin Next
-      (--background, --border, --muted-foreground) per integrarsi visivamente
+# Changelog
 
-# v1.0.0
-## [unreleased]
-1. [](#new)
-    * Rinominato da "tinymce-editor" a "modern-editor" per evitare conflitto con plugin GPM omonimo
-    * Cambiato meccanismo di override del campo "content": da riscrittura PHP a runtime
-      (non funzionante con il plugin API di Admin Next) a generazione dinamica di blueprint
-      file-based via onGetPageBlueprints, conforme al meccanismo standard @extends di Grav
-    * L'override viene ora generato automaticamente per OGNI template del tema attivo,
-      non solo per "default"
-    * Editor visuale (TinyMCE via CDN) come Custom Field via Web Component per Admin Next
-    * Nessuna modifica al tema richiesta
+## v1.1.0
+* Hid the TinyMCE 7 "Get all features" promotion button.
+* Fully translated all developer comments, user-facing loading/error states, and code annotations from Italian to English.
+* Completely translated, updated, and modernized the `README.md` in English.
+* Handed over maintainership/authorship details to PeopleInside.
+
+## v1.0.0
+* Renamed plugin from `tinymce-editor` to `modern-editor` to avoid collision with GPM plugins of the same name.
+* Changed the "content" field override mechanism from runtime PHP rewrite to dynamic file-based blueprint generation via `onGetPageBlueprints` conforming to Grav's standard `@extends` system.
+* Overrides are now automatically generated for EVERY template in the active theme, rather than just the default.
+* Visual editor (TinyMCE via CDN) integrated as a Custom Field using a Web Component for Admin Next.
+* No manual theme changes are required.

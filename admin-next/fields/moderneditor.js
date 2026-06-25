@@ -1,24 +1,23 @@
 /**
- * Modern Editor — Custom Field per Admin Next (Grav 2.0)
- * (basato su TinyMCE, caricato da CDN)
+ * Modern Editor — Custom Field for Admin Next (Grav 2.0)
+ * (based on TinyMCE, loaded from CDN)
  *
- * Implementa il contratto Web Component richiesto da Admin Next:
- *  - riceve `field` (definizione blueprint) e `value` (contenuto attuale) via setter
- *  - emette un evento `change` (bubbles: true) quando il contenuto cambia
+ * Implements the Web Component contract required by Admin Next:
+ *  - receives `field` (blueprint definition) and `value` (current content) via setters
+ *  - emits a `change` event (bubbles: true) when the content changes
  *
- * TinyMCE viene caricato da CDN al volo (nessun bundler/build step richiesto).
- * Il valore scambiato con Admin Next è sempre HTML (stringa).
+ * TinyMCE is loaded dynamically from CDN (no bundler/build step required).
+ * The value exchanged with Admin Next is always HTML (string).
  *
- * Questo campo viene applicato automaticamente al campo "content" di ogni
- * pagina dal plugin PHP (vedi modern-editor.php), senza bisogno di
- * modificare i blueprint del tema. Il tipo di campo si chiama
- * "moderneditor" (file: admin-next/fields/moderneditor.js).
+ * This field is automatically applied to the "content" field of each
+ * page by the PHP plugin (see modern-editor.php), without needing to
+ * modify theme blueprints. The field type is called "moderneditor".
  */
 
 const TAG = window.__GRAV_FIELD_TAG;
 const TINYMCE_CDN = 'https://cdn.jsdelivr.net/npm/tinymce@7/tinymce.min.js';
 
-// Carica lo script TinyMCE una sola volta, anche se più istanze del campo sono presenti.
+// Load TinyMCE script once, even if multiple instances of the field are present.
 function loadTinyMCE() {
   if (window.tinymce) {
     return Promise.resolve(window.tinymce);
@@ -31,39 +30,10 @@ function loadTinyMCE() {
     script.src = TINYMCE_CDN;
     script.referrerPolicy = 'origin';
     script.onload = () => resolve(window.tinymce);
-    script.onerror = () => reject(new Error('Impossibile caricare TinyMCE da CDN'));
+    script.onerror = () => reject(new Error('Failed to load TinyMCE from CDN'));
     document.head.appendChild(script);
   });
   return window.__TINYMCE_LOADING__;
-}
-
-// Rileva se Admin Next è attualmente in dark mode. Admin Next gestisce il
-// color mode (light/dark/auto) sul <html>, tipicamente con una classe
-// "dark" o l'attributo data-theme="dark"/color-scheme. Per essere
-// resilienti a possibili convenzioni diverse, controlliamo più segnali:
-// classe "dark" sull'elemento <html>, attributo data-theme/data-color-mode,
-// e in subordine la preferenza di sistema (prefers-color-scheme).
-function isDarkMode() {
-  const root = document.documentElement;
-  if (root.classList.contains('dark')) return true;
-  const dataTheme = root.getAttribute('data-theme') || root.getAttribute('data-color-mode') || root.getAttribute('data-mode');
-  if (dataTheme && dataTheme.toLowerCase().includes('dark')) return true;
-  if (dataTheme && dataTheme.toLowerCase().includes('light')) return false;
-  // Fallback: legge il valore calcolato della custom property --background
-  // di Admin Next, se sufficientemente scuro. Ultima spiaggia, solo se i
-  // segnali sopra non hanno dato una risposta netta.
-  try {
-    const bg = getComputedStyle(root).getPropertyValue('--background').trim();
-    const rgb = bg.match(/\d+/g);
-    if (rgb && rgb.length >= 3) {
-      const [r, g, b] = rgb.map(Number);
-      const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-      return luminance < 0.5;
-    }
-  } catch (e) {
-    /* noop */
-  }
-  return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
 }
 
 class TinyMCEField extends HTMLElement {
@@ -71,10 +41,8 @@ class TinyMCEField extends HTMLElement {
   _value = '';
   _editor = null;
   _editorId = null;
-  _applying = false; // evita loop: true mentre stiamo applicando un valore esterno
+  _applying = false; // Avoid loop while applying an external value
   _ready = false;
-  _darkObserver = null;
-  _isDark = false;
 
   set field(f) {
     this._field = f || {};
@@ -102,66 +70,36 @@ class TinyMCEField extends HTMLElement {
     return this._value;
   }
 
+  _detectDarkMode() {
+    try {
+      const isDarkClass = document.documentElement.classList.contains('dark') ||
+                          document.documentElement.classList.contains('dark-mode') ||
+                          document.body.classList.contains('dark') ||
+                          document.body.classList.contains('dark-mode') ||
+                          document.body.classList.contains('theme-dark') ||
+                          document.documentElement.classList.contains('theme-dark') ||
+                          document.documentElement.getAttribute('data-theme') === 'dark' ||
+                          document.body.getAttribute('data-theme') === 'dark';
+      
+      const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+      
+      return isDarkClass || prefersDark;
+    } catch (e) {
+      return false;
+    }
+  }
+
   connectedCallback() {
     this._editorId = 'tinymce-field-' + Math.random().toString(36).slice(2, 10);
-    this._isDark = isDarkMode();
     this.attachShadow({ mode: 'open' });
-    this._renderShell();
-    this._watchColorScheme();
+    const isDarkMode = this._detectDarkMode();
+    this._renderShell(isDarkMode);
     loadTinyMCE()
-      .then(() => this._initEditor())
+      .then(() => this._initEditor(isDarkMode))
       .catch((err) => this._renderError(err));
   }
 
   disconnectedCallback() {
-    this._destroyEditor();
-    if (this._darkObserver) {
-      this._darkObserver.disconnect();
-      this._darkObserver = null;
-    }
-  }
-
-  /**
-   * Osserva i cambi di tema (classe/attributo su <html>, o preferenza di
-   * sistema se Admin Next è in modalità "auto") e ricrea l'editor con lo
-   * skin corretto quando il tema cambia, senza che l'utente debba
-   * ricaricare la pagina.
-   */
-  _watchColorScheme() {
-    this._darkObserver = new MutationObserver(() => {
-      const nowDark = isDarkMode();
-      if (nowDark !== this._isDark) {
-        this._isDark = nowDark;
-        this._reinitForTheme();
-      }
-    });
-    this._darkObserver.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ['class', 'data-theme', 'data-color-mode', 'data-mode'],
-    });
-
-    if (window.matchMedia) {
-      const mq = window.matchMedia('(prefers-color-scheme: dark)');
-      const onChange = () => {
-        const nowDark = isDarkMode();
-        if (nowDark !== this._isDark) {
-          this._isDark = nowDark;
-          this._reinitForTheme();
-        }
-      };
-      mq.addEventListener ? mq.addEventListener('change', onChange) : mq.addListener(onChange);
-    }
-  }
-
-  _reinitForTheme() {
-    if (!this._ready || !this._editor) return;
-    const html = this._editor.getContent();
-    this._destroyEditor();
-    this._renderShell();
-    this._initEditor(html);
-  }
-
-  _destroyEditor() {
     if (this._editor) {
       try {
         this._editor.remove();
@@ -173,37 +111,43 @@ class TinyMCEField extends HTMLElement {
     }
   }
 
-  _renderShell() {
+  _renderShell(isDarkMode) {
     this.shadowRoot.innerHTML = `
       <style>
-        :host { display: block; }
+        :host { display: block; position: relative; }
         .wrap {
-          border: 1px solid var(--border, #d1d5db);
+          border: 1px solid ${isDarkMode ? '#3f3f46' : '#d1d5db'};
           border-radius: 6px;
           overflow: hidden;
-          background: var(--background, #ffffff);
+          background-color: ${isDarkMode ? '#18181b' : '#ffffff'};
         }
         .loading {
-          padding: 24px; font-size: 13px; font-style: italic;
-          color: var(--muted-foreground, #6b7280);
-          background: var(--background, #ffffff);
+          padding: 24px; font-size: 13px; color: ${isDarkMode ? '#a1a1aa' : '#6b7280'}; font-style: italic;
         }
         .error {
           padding: 12px; font-size: 13px; color: #b91c1c; background: #fef2f2;
           border: 1px solid #fecaca; border-radius: 6px;
         }
+        .ui-container {
+          position: absolute;
+          top: 0;
+          left: 0;
+          width: 100%;
+          z-index: 99999;
+        }
       </style>
       <div class="wrap">
-        <div class="loading">Caricamento editor visuale…</div>
+        <div class="loading">Loading visual editor…</div>
         <textarea id="${this._editorId}" style="display:none;"></textarea>
       </div>
+      <div class="ui-container"></div>
     `;
   }
 
   _renderError(err) {
     this.shadowRoot.innerHTML = `
       <style>.error { padding: 12px; font-size: 13px; color: #b91c1c; background: #fef2f2; border: 1px solid #fecaca; border-radius: 6px; }</style>
-      <div class="error">Errore nel caricamento dell'editor visuale: ${this._esc(err.message)}</div>
+      <div class="error">Error loading visual editor: ${this._esc(err.message)}</div>
     `;
   }
 
@@ -215,15 +159,25 @@ class TinyMCEField extends HTMLElement {
 
   _cfg() {
     const f = this._field || {};
+    const mVal = f.menubar;
+    const isMenubarEnabled = mVal === undefined || mVal === true || mVal === 'true' || mVal === 1 || mVal === '1';
+    
+    // Ensure the toolbar contains forecolor and backcolor to allow changing the text/background color
+    let toolbar = f.toolbar || 'undo redo | blocks | bold italic underline forecolor backcolor | bullist numlist | link image media table | code fullscreen';
+    if (toolbar && !toolbar.includes('forecolor')) {
+      // If manually defined in the user's blueprint but does not contain color picker options, inject them
+      toolbar = toolbar.replace('bold italic underline', 'bold italic underline forecolor backcolor');
+    }
+
     return {
       height: parseInt(f.height, 10) || 500,
-      menubar: !!f.menubar,
+      menubar: isMenubarEnabled,
       plugins: f.plugins || 'lists link image table code fullscreen searchreplace media',
-      toolbar: f.toolbar || 'undo redo | blocks | bold italic underline | bullist numlist | link image media table | code fullscreen',
+      toolbar: toolbar,
     };
   }
 
-  _initEditor(restoreValue) {
+  _initEditor(isDarkMode) {
     const textarea = this.shadowRoot.getElementById(this._editorId);
     if (!textarea) return;
 
@@ -231,28 +185,30 @@ class TinyMCEField extends HTMLElement {
     this.shadowRoot.querySelector('.loading')?.remove();
 
     const cfg = this._cfg();
-    const valueToRestore = restoreValue !== undefined ? restoreValue : this._value;
+    const uiContainer = this.shadowRoot.querySelector('.ui-container');
 
     window.tinymce.init({
       target: textarea,
-      // TinyMCE monta dentro lo Shadow DOM: necessario indicarlo esplicitamente.
-      inline: false,
       license_key: 'gpl',
+      // TinyMCE is mounted inside the Shadow DOM: this must be explicitly set.
+      inline: false,
       height: cfg.height,
       menubar: cfg.menubar,
       plugins: cfg.plugins,
       toolbar: cfg.toolbar,
       branding: false,
-      // Skin e contenuto: applica le varianti scure di TinyMCE quando
-      // Admin Next è in dark mode, così l'editor non resta "bianco" in
-      // un'interfaccia altrimenti scura.
-      skin: this._isDark ? 'oxide-dark' : 'oxide',
-      content_css: this._isDark ? 'dark' : 'default',
+      promotion: false, // Hides the "Get all features" button/badge
+      skin: isDarkMode ? 'oxide-dark' : 'oxide',
+      content_css: isDarkMode ? 'dark' : 'default',
+      // Allows TinyMCE to detect the shadow root host for external click handling
+      custom_ui_selector: TAG,
+      // Anchors popup menus/dialogs to our ui-container in the Shadow DOM
+      ui_container: uiContainer,
       setup: (editor) => {
         editor.on('init', () => {
           this._editor = editor;
           this._ready = true;
-          editor.setContent(valueToRestore || '');
+          editor.setContent(this._value || '');
         });
         editor.on('change keyup undo redo', () => {
           if (this._applying) return;
@@ -268,16 +224,20 @@ class TinyMCEField extends HTMLElement {
   }
 
   _maybeReinit() {
-    // Se cambia una opzione di configurazione rilevante (es. toolbar) dopo
-    // l'inizializzazione, ricreiamo l'editor con la nuova configurazione.
+    // If a relevant configuration option changes after initialization (e.g., toolbar), reinitialize the editor.
     if (!this._editor) return;
-    const current = JSON.stringify(this._cfg());
+    const isDarkMode = this._detectDarkMode();
+    const current = JSON.stringify({ ...this._cfg(), isDarkMode });
     if (this._lastCfg === current) return;
     this._lastCfg = current;
     const html = this._editor.getContent();
-    this._destroyEditor();
-    this._renderShell();
-    loadTinyMCE().then(() => this._initEditor(html));
+    this._editor.remove();
+    this._ready = false;
+    this._renderShell(isDarkMode);
+    loadTinyMCE().then(() => {
+      this._initEditor(isDarkMode);
+      this._value = html;
+    });
   }
 }
 
