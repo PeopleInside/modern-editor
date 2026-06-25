@@ -1,0 +1,59 @@
+name: Modern Editor
+version: 1.1.0
+description: "Editor visuale WYSIWYG (basato su TinyMCE) per il contenuto delle pagine, compatibile con Admin Next (Grav 2.0)."
+icon: edit
+author:
+  name: Il tuo nome
+  email: tuo@email.it
+homepage: https://github.com/tuonome/grav-plugin-modern-editor
+keywords: grav, plugin, editor, wysiwyg, admin-next, visual editor
+bugs: https://github.com/tuonome/grav-plugin-modern-editor/issues
+license: MIT
+
+compatibility:
+  - "2.0"
+
+form:
+  fields:
+    enabled:
+      type: toggle
+      label: PLUGIN_MODERN_EDITOR.ENABLED
+      help: PLUGIN_MODERN_EDITOR.ENABLED_HELP
+      default: true
+      highlight: 1
+      options:
+        1: PLUGIN_ADMIN.ENABLED
+        0: PLUGIN_ADMIN.DISABLED
+      validate:
+        type: bool
+
+    height:
+      type: text
+      label: PLUGIN_MODERN_EDITOR.HEIGHT
+      help: PLUGIN_MODERN_EDITOR.HEIGHT_HELP
+      default: "500"
+      validate:
+        type: number
+
+    menubar:
+      type: toggle
+      label: PLUGIN_MODERN_EDITOR.MENUBAR
+      help: PLUGIN_MODERN_EDITOR.MENUBAR_HELP
+      default: false
+      options:
+        1: PLUGIN_ADMIN.ENABLED
+        0: PLUGIN_ADMIN.DISABLED
+      validate:
+        type: bool
+
+    plugins:
+      type: text
+      label: PLUGIN_MODERN_EDITOR.PLUGINS
+      help: PLUGIN_MODERN_EDITOR.PLUGINS_HELP
+      default: "lists link image table code fullscreen searchreplace media"
+
+    toolbar:
+      type: text
+      label: PLUGIN_MODERN_EDITOR.TOOLBAR
+      help: PLUGIN_MODERN_EDITOR.TOOLBAR_HELP
+      default: "undo redo | blocks | bold italic underline | bullist numlist | link image media table | code fullscreen"

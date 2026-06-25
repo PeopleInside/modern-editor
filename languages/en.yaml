@@ -1,0 +1,11 @@
+PLUGIN_MODERN_EDITOR:
+  ENABLED: Enabled
+  ENABLED_HELP: Enable or disable the visual editor on the page content field.
+  HEIGHT: Editor height (px)
+  HEIGHT_HELP: Height in pixels of the visual editor area.
+  MENUBAR: Show menu bar
+  MENUBAR_HELP: Show the menu bar (File, Edit, Insert, etc.) in addition to the toolbar.
+  PLUGINS: Editor plugins
+  PLUGINS_HELP: "Space-separated list of TinyMCE plugins to load (e.g. lists link image table code)."
+  TOOLBAR: Toolbar
+  TOOLBAR_HELP: "Toolbar configuration, following official TinyMCE syntax."
