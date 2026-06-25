@@ -21,6 +21,12 @@ No `composer install` or `npm install` is required; the visual editor is loaded 
 
 ---
 
+## Disclaimer
+
+This software is provided **"AS IS"**, without any warranty. While it has been tested and reasonable efforts are made to ensure security and reliability, no guarantees are provided. As an open project, anyone may contribute or report issues, but this does not imply endorsement or liability from the maintainers.
+
+**You use this software entirely at your own risk.** The authors and contributors are not liable for any damages, data loss, or unexpected behavior resulting from its use, modification, or distribution. Always review and test the code independently before deploying it in critical or production environments.
+
 ## How Field Overrides Work (No Theme Modifications Required)
 
 Grav resolves page blueprints (the schemas defining edit fields) by merging YAML files from multiple directories using the standard `@extends` mechanism via the `blueprints://pages` stream. A blueprint file can extend an existing page template (e.g., `default`, `item`, `blog`) and override specific fields, leaving everything else intact.
