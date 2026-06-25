@@ -2,6 +2,9 @@
 
 A modern visual WYSIWYG editor (powered by [TinyMCE](https://www.tiny.cloud/)) for the page content field, fully compatible with **Admin Next** (the brand-new admin interface for Grav 2.0).
 
+<img width="1364" height="765" alt="image" src="https://github.com/user-attachments/assets/7037738e-7c78-40a3-8574-b968940ddb41" />
+
+
 ---
 
 ## Installation
