@@ -89,7 +89,6 @@ From Admin Next → Plugins → Modern Editor, you can easily customize:
 ## Maintainer & Author
 
 - **Author**: PeopleInside
-- **Email**: [tickets@peopleinside-it.p.tawk.email](mailto:tickets@peopleinside-it.p.tawk.email)
 - **GitHub Repository**: [https://github.com/PeopleInside/modern-editor](https://github.com/PeopleInside/modern-editor)
 
 ---
