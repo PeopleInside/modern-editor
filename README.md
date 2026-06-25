@@ -4,6 +4,14 @@ A modern visual WYSIWYG editor (powered by [TinyMCE](https://www.tiny.cloud/)) f
 
 <img width="1364" height="765" alt="image" src="https://github.com/user-attachments/assets/7037738e-7c78-40a3-8574-b968940ddb41" />
 
+## License & Third-Party Components
+
+This plugin is licensed under the MIT License.
+
+**Note about TinyMCE:** This plugin loads TinyMCE 7 from a public CDN (jsdelivr.net). 
+TinyMCE 7 is licensed under GPLv2+. By using this plugin, you are loading TinyMCE 
+from an external source at runtime. Please ensure this complies with your use case 
+and licensing requirements.
 
 ---
 
