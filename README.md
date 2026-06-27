@@ -15,12 +15,6 @@ and licensing requirements.
 
 ---
 
-## Disclaimer
-
-This software is provided **"AS IS"**, without any warranty. While it has been tested and reasonable efforts are made to ensure security and reliability, no guarantees are provided. As an open project, anyone may contribute or report issues, but this does not imply endorsement or liability from the maintainers.
-
-**You use this software entirely at your own risk.** The authors and contributors are not liable for any damages, data loss, or unexpected behavior resulting from its use, modification, or distribution. Always review and test the code independently before deploying it in critical or production environments.
-
 ## Installation
 
 1. **If you have a previous version of this plugin installed** (e.g., named `tinymce-editor`), **please uninstall it first** to avoid conflicts:
@@ -37,6 +31,12 @@ This software is provided **"AS IS"**, without any warranty. While it has been t
 No `composer install` or `npm install` is required; the visual editor is loaded directly from jsDelivr CDN on the fly in the administrator's browser.
 
 ---
+
+## Disclaimer
+
+This software is provided **"AS IS"**, without any warranty. While it has been tested and reasonable efforts are made to ensure security and reliability, no guarantees are provided. As an open project, anyone may contribute or report issues, but this does not imply endorsement or liability from the maintainers.
+
+**You use this software entirely at your own risk.** The authors and contributors are not liable for any damages, data loss, or unexpected behavior resulting from its use, modification, or distribution. Always review and test the code independently before deploying it in critical or production environments.
 
 ## How Field Overrides Work (No Theme Modifications Required)
 
@@ -79,6 +79,9 @@ If the editor does not appear, follow these steps:
 ## Configuration
 
 From Admin Next → Plugins → Modern Editor, you can easily customize:
+- **Editor Script Source**: Choose between **Cloud CDN (jsDelivr)** and **Local (Self-hosted)**. If **Local** is selected, the plugin will load TinyMCE directly from your server without making external CDN calls.
+- **Local TinyMCE Version**: Specify the version of TinyMCE to download for self-hosting (default: `7.4.0`).
+- **Local Status / Update**: A custom status card displaying whether the local assets are present, which version is currently installed, and provides a direct, secure action button to download, reinstall, or manually upgrade the editor's version.
 - **Editor Height**: The height in pixels of the visual editing canvas.
 - **Menubar Visibility**: Show or hide the top menu bar (File, Edit, Insert, etc.).
 - **Active Plugins**: Space-separated list of TinyMCE plugins to load.
@@ -86,10 +89,24 @@ From Admin Next → Plugins → Modern Editor, you can easily customize:
 
 ---
 
+## Local Self-Hosting (Offline Mode)
+
+If your Grav installation runs in a private network, or if you prefer not to rely on third-party CDNs (jsDelivr) for privacy/compliance reasons, you can enable local mode:
+
+1. Go to Admin Next → Plugins → **Modern Editor**.
+2. Change **Editor Script Source** to **Local (Self-hosted)**.
+3. Keep the default **Local TinyMCE Version** (e.g. `7.4.0`), or write any valid version you wish to target.
+4. The system will **automatically download, extract, and verify** the specified TinyMCE Community edition ZIP package on the fly when the admin panel loads.
+5. Alternatively, you can click the **"Download Local TinyMCE Now"** button in the status message to trigger the download process immediately.
+6. Once completed, a confirmation notice will appear, and you will see: `🟢 Local TinyMCE is installed (v7.4.0)`.
+
+*Requirement:* Your web server must have the PHP `curl` and `ZipArchive` extensions enabled to download and unzip the community files.
+
+---
+
 ## Known Limitations
 
 - **HTML Content**: The content exchanged with the form is **HTML**, not Markdown.
-- **CDN Dependency**: TinyMCE is loaded from a public CDN, requiring internet access on the administrator's browser. If your site implements a highly restrictive Content Security Policy (CSP), the script might be blocked unless configured to trust jsdelivr.net.
 - **Modular Templates**: Modular page templates (inside the theme's `templates/modular/` directory) are excluded from automatic generation. To use the editor there, add a manual override blueprint.
 
 ---

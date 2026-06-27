@@ -1,6 +1,9 @@
 PLUGIN_MODERN_EDITOR:
   ENABLED: Attivo
   ENABLED_HELP: Abilita o disabilita l'editor visuale sul campo contenuto delle pagine.
+  EDITOR_SOURCE: Sorgente script editor
+  EDITOR_SOURCE_HELP: Scegli se caricare l'editor da una CDN Cloud pubblica o utilizzare una versione ospitata localmente sul tuo server.
+  LOCAL_STATUS: Stato locale di TinyMCE
   HEIGHT: Altezza editor (px)
   HEIGHT_HELP: Altezza in pixel dell'area dell'editor visuale.
   MENUBAR: Mostra barra dei menu

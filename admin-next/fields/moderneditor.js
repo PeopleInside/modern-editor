@@ -1,12 +1,12 @@
 /**
  * Modern Editor — Custom Field for Admin Next (Grav 2.0)
- * (based on TinyMCE, loaded from CDN)
+ * (based on TinyMCE, loaded from CDN or local self-hosted files)
  *
  * Implements the Web Component contract required by Admin Next:
  *  - receives `field` (blueprint definition) and `value` (current content) via setters
  *  - emits a `change` event (bubbles: true) when the content changes
  *
- * TinyMCE is loaded dynamically from CDN (no bundler/build step required).
+ * TinyMCE is loaded dynamically from CDN or local self-hosted files.
  * The value exchanged with Admin Next is always HTML (string).
  *
  * This field is automatically applied to the "content" field of each
@@ -18,22 +18,141 @@ const TAG = window.__GRAV_FIELD_TAG;
 const TINYMCE_CDN = 'https://cdn.jsdelivr.net/npm/tinymce@7/tinymce.min.js';
 
 // Load TinyMCE script once, even if multiple instances of the field are present.
-function loadTinyMCE() {
+function loadTinyMCE(url) {
+  const isUrlCdn = url.includes('cdn.jsdelivr.net') || url.includes('tiny.cloud') || url.includes('cdnjs');
+
   if (window.tinymce) {
-    return Promise.resolve(window.tinymce);
+    const isCurrentCdn = !window.tinymce.baseURL || window.tinymce.baseURL.includes('cdn.jsdelivr.net') || window.tinymce.baseURL.includes('tiny.cloud') || window.tinymce.baseURL.includes('cdnjs');
+    if (isUrlCdn !== isCurrentCdn) {
+      const scripts = document.querySelectorAll('script[src*="tinymce.min.js"], script[src*="tinymce.js"]');
+      scripts.forEach(s => s.remove());
+      delete window.tinymce;
+      window.__TINYMCE_LOADING__ = null;
+    } else {
+      return Promise.resolve(window.tinymce);
+    }
   }
+
   if (window.__TINYMCE_LOADING__) {
     return window.__TINYMCE_LOADING__;
   }
+
+  // Pre-initialize TinyMCE base URL so it doesn't auto-detect incorrectly
+  if (url && !isUrlCdn) {
+    const urlParts = url.split('/');
+    urlParts.pop(); // remove 'tinymce.min.js'
+    const baseUrl = urlParts.join('/');
+    window.tinyMCEPreInit = {
+      base: baseUrl,
+      suffix: '.min'
+    };
+  } else {
+    delete window.tinyMCEPreInit;
+  }
+
   window.__TINYMCE_LOADING__ = new Promise((resolve, reject) => {
     const script = document.createElement('script');
-    script.src = TINYMCE_CDN;
+    script.src = url || TINYMCE_CDN;
     script.referrerPolicy = 'origin';
     script.onload = () => resolve(window.tinymce);
-    script.onerror = () => reject(new Error('Failed to load TinyMCE from CDN'));
+    script.onerror = () => reject(new Error('Failed to load TinyMCE'));
     document.head.appendChild(script);
   });
   return window.__TINYMCE_LOADING__;
+}
+
+function getAdminPath() {
+  if (window.GravAdmin?.config?.base_url_relative) {
+    return window.GravAdmin.config.base_url_relative;
+  }
+  if (window.GravAdmin?.config?.base_url) {
+    return window.GravAdmin.config.base_url;
+  }
+  if (window.Grav?.config?.base_url_relative) {
+    return window.Grav.config.base_url_relative;
+  }
+  if (window.Grav?.config?.base_url) {
+    return window.Grav.config.base_url;
+  }
+  
+  const pathname = window.location.pathname;
+  const adminIdx = pathname.indexOf('/admin');
+  if (adminIdx !== -1) {
+    return pathname.substring(0, adminIdx + 6);
+  }
+  return '/admin';
+}
+
+let cachedConfig = null;
+
+async function fetchConfig() {
+  if (cachedConfig) {
+    return cachedConfig;
+  }
+
+  const adminPath = getAdminPath();
+  const cleanAdminPath = adminPath.endsWith('/') ? adminPath.slice(0, -1) : adminPath;
+  const url = cleanAdminPath + '/plugins/modern-editor?action=get_config';
+
+  try {
+    const response = await fetch(url);
+    if (response.ok) {
+      cachedConfig = await response.json();
+      return cachedConfig;
+    }
+  } catch (err) {
+    console.error('Failed to fetch Modern Editor config:', err);
+  }
+
+  return {
+    editor_source: 'cdn',
+    editor_url: TINYMCE_CDN,
+    height: 500,
+    menubar: true,
+    plugins: "lists link image table code fullscreen searchreplace media",
+    toolbar: "undo redo | blocks | bold italic underline forecolor backcolor | bullist numlist | link image media table | code fullscreen"
+  };
+}
+
+function getEditorUrl(field) {
+  // 1. Detect the dynamic plugin root path via the script tag of moderneditor.js
+  let localPrefix = '';
+  const scriptEl = document.querySelector('script[src*="moderneditor.js"]');
+  if (scriptEl) {
+    const src = scriptEl.getAttribute('src') || '';
+    const idx = src.indexOf('/admin-next/fields/moderneditor.js');
+    if (idx !== -1) {
+      localPrefix = src.substring(0, idx);
+    }
+  }
+
+  // 2. Check the configured editor URL from the blueprint / global variable
+  const configUrl = window.__MODERN_EDITOR_URL__ || field?.editor_url || '';
+
+  // 3. If local source is active or configUrl points to a local file, construct a perfect local URL
+  const isCdn = configUrl.includes('cdn.jsdelivr.net') || configUrl.includes('tiny.cloud') || configUrl.includes('cdnjs');
+  if (field?.editor_source === 'local' || (configUrl && !isCdn)) {
+    if (localPrefix) {
+      return localPrefix + '/assets/tinymce/tinymce.min.js';
+    }
+    return configUrl;
+  }
+
+  // Fallback to CDN or global URL
+  return configUrl || TINYMCE_CDN;
+}
+
+function ensureBaseUrl(url) {
+  const isCdn = url.includes('cdn.jsdelivr.net') || url.includes('tiny.cloud') || url.includes('cdnjs');
+  if (window.tinymce && url && !isCdn) {
+    const urlParts = url.split('/');
+    urlParts.pop(); // remove 'tinymce.min.js'
+    const baseUrl = urlParts.join('/');
+    window.tinymce.baseURL = baseUrl;
+    if (window.tinyMCE) {
+      window.tinyMCE.baseURL = baseUrl;
+    }
+  }
 }
 
 class TinyMCEField extends HTMLElement {
@@ -43,9 +162,13 @@ class TinyMCEField extends HTMLElement {
   _editorId = null;
   _applying = false; // Avoid loop while applying an external value
   _ready = false;
+  _bootstrapped = false;
 
   set field(f) {
     this._field = f || {};
+    if (this.shadowRoot) {
+      this._bootstrap();
+    }
     if (this._ready) this._maybeReinit();
   }
 
@@ -92,10 +215,42 @@ class TinyMCEField extends HTMLElement {
   connectedCallback() {
     this._editorId = 'tinymce-field-' + Math.random().toString(36).slice(2, 10);
     this.attachShadow({ mode: 'open' });
+    if (this._field) {
+      this._bootstrap();
+    }
+  }
+
+  async _bootstrap() {
+    if (this._bootstrapped) return;
+    if (!this._field) return;
+    this._bootstrapped = true;
+
     const isDarkMode = this._detectDarkMode();
     this._renderShell(isDarkMode);
-    loadTinyMCE()
-      .then(() => this._initEditor(isDarkMode))
+
+    try {
+      const dCfg = await fetchConfig();
+      this._field = {
+        ...dCfg,
+        ...this._field,
+        editor_source: dCfg.editor_source,
+        editor_url: dCfg.editor_url,
+        height: dCfg.height || this._field.height,
+        menubar: dCfg.menubar,
+        plugins: dCfg.plugins || this._field.plugins,
+        toolbar: dCfg.toolbar || this._field.toolbar,
+      };
+    } catch (e) {
+      console.warn('Could not fetch server config for Modern Editor, using local defaults.', e);
+    }
+
+    const url = getEditorUrl(this._field);
+
+    loadTinyMCE(url)
+      .then(() => {
+        ensureBaseUrl(url);
+        this._initEditor(isDarkMode);
+      })
       .catch((err) => this._renderError(err));
   }
 
@@ -187,7 +342,7 @@ class TinyMCEField extends HTMLElement {
     const cfg = this._cfg();
     const uiContainer = this.shadowRoot.querySelector('.ui-container');
 
-    window.tinymce.init({
+    const initOpts = {
       target: textarea,
       license_key: 'gpl',
       // TinyMCE is mounted inside the Shadow DOM: this must be explicitly set.
@@ -220,21 +375,34 @@ class TinyMCEField extends HTMLElement {
           }));
         });
       },
-    }).catch((err) => this._renderError(err));
+    };
+
+    // If loading from local path, specify base_url so TinyMCE can load its assets (plugins, skins, themes) correctly
+    const editorUrl = getEditorUrl(this._field);
+    if (editorUrl && !editorUrl.includes('cdn.jsdelivr.net')) {
+      const urlParts = editorUrl.split('/');
+      urlParts.pop(); // remove 'tinymce.min.js'
+      initOpts.base_url = urlParts.join('/');
+    }
+
+    window.tinymce.init(initOpts).catch((err) => this._renderError(err));
   }
 
   _maybeReinit() {
     // If a relevant configuration option changes after initialization (e.g., toolbar), reinitialize the editor.
     if (!this._editor) return;
     const isDarkMode = this._detectDarkMode();
-    const current = JSON.stringify({ ...this._cfg(), isDarkMode });
+    const editorUrl = getEditorUrl(this._field);
+    const current = JSON.stringify({ ...this._cfg(), isDarkMode, editor_url: editorUrl });
     if (this._lastCfg === current) return;
     this._lastCfg = current;
     const html = this._editor.getContent();
     this._editor.remove();
     this._ready = false;
     this._renderShell(isDarkMode);
-    loadTinyMCE().then(() => {
+    
+    loadTinyMCE(editorUrl).then(() => {
+      ensureBaseUrl(editorUrl);
       this._initEditor(isDarkMode);
       this._value = html;
     });

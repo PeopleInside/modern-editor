@@ -1,7 +1,12 @@
 # Changelog
 
-## 1.1.4
-Version increasing
+## v1.1.5
+* Added full support for **Local Self-Hosting (Offline Mode)**, allowing the editor to be loaded directly from the local server without any external CDN calls.
+* Removed unrequested TinyMCE version selection; the editor is now streamlined to use standard stable v7.4.0 with an integrated automatic downloader.
+* Added a dedicated dynamic **status card** in the Admin panel that shows the local TinyMCE version currently in use.
+* Added a **Check for Updates** (Verifica aggiornamenti) button that queries the npm registry live for the latest stable TinyMCE version.
+* Integrated an **Update Now** button in the status card to easily download and extract newer TinyMCE versions.
+* Improved Web Component behavior in `moderneditor.js` to dynamically fetch the plugin configurations and source selection asynchronously via a custom JSON endpoint in PHP.
 
 ## v1.1.0
 * Hid the TinyMCE 7 "Get all features" promotion button.

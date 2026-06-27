@@ -1,5 +1,5 @@
 name: Modern Editor
-version: 1.1.4
+version: 1.1.5
 description: "Modern visual WYSIWYG editor (based on TinyMCE) for page content, compatible with Admin Next (Grav 2.0)."
 icon: edit
 author:
@@ -34,6 +34,19 @@ form:
         0: PLUGIN_ADMIN.DISABLED
       validate:
         type: bool
+
+    editor_source:
+      type: select
+      label: PLUGIN_MODERN_EDITOR.EDITOR_SOURCE
+      help: PLUGIN_MODERN_EDITOR.EDITOR_SOURCE_HELP
+      default: cdn
+      options:
+        cdn: Cloud CDN (jsDelivr)
+        local: Local (Self-hosted)
+
+    local_status:
+      type: moderneditorstatus
+      label: PLUGIN_MODERN_EDITOR.LOCAL_STATUS
 
     height:
       type: text

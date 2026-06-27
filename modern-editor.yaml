@@ -1,4 +1,5 @@
 enabled: true
+editor_source: cdn
 height: 500
 menubar: true
 plugins: "lists link image table code fullscreen searchreplace media"
