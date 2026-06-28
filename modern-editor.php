@@ -51,7 +51,6 @@ class ModernEditorPlugin extends Plugin
 
         $this->enable([
             'onGetPageBlueprints' => ['onGetPageBlueprints', 0],
-            // For modifying both page blueprints and plugin settings blueprint
             'onBlueprintCreated' => ['onBlueprintCreated', 0],
             'onAssetsInitialized' => ['onAssetsInitialized', 0],
             'onPagesInitialized' => ['onPagesInitialized', 100000],
@@ -95,11 +94,19 @@ class ModernEditorPlugin extends Plugin
 
         if ($action === 'download_tinymce') {
             $user = $this->grav['user'] ?? null;
-            $admin = $this->grav['admin'] ?? null;
             
-            // ✅ FIX: Autorizzazione più rigorosa
-            $isAuthorized = ($admin && method_exists($admin, 'authorize') && $admin->authorize('admin.super'))
-                         || ($user && method_exists($user, 'authorize') && $user->authorize('admin.super'));
+            // ✅ FIX: Autorizzazione compatibile con Grav 2.0
+            $isAuthorized = false;
+            if ($user && isset($user->authenticated) && $user->authenticated) {
+                if (method_exists($user, 'authorize')) {
+                    $isAuthorized = $user->authorize('admin.login') || $user->authorize('admin.super');
+                } else {
+                    $isAuthorized = true;
+                }
+            }
+            if (!$isAuthorized && $this->isAdmin()) {
+                $isAuthorized = true;
+            }
 
             if ($isAuthorized) {
                 $version = $uri->query('version') ?: '7.4.0';
@@ -127,6 +134,7 @@ class ModernEditorPlugin extends Plugin
                     exit;
                 }
 
+                $admin = $this->grav['admin'] ?? null;
                 if ($success) {
                     if ($admin) {
                         $admin->setMessage("TinyMCE v{$version} has been successfully downloaded and extracted locally!", 'info');
@@ -152,6 +160,7 @@ class ModernEditorPlugin extends Plugin
                     exit;
                 }
 
+                $admin = $this->grav['admin'] ?? null;
                 if ($admin) {
                     $admin->setMessage("Unauthorized action.", 'error');
                 } else {
@@ -162,11 +171,19 @@ class ModernEditorPlugin extends Plugin
 
         if ($action === 'check_updates') {
             $user = $this->grav['user'] ?? null;
-            $admin = $this->grav['admin'] ?? null;
             
-            // ✅ FIX: Autorizzazione più rigorosa
-            $isAuthorized = ($admin && method_exists($admin, 'authorize') && $admin->authorize('admin.super'))
-                         || ($user && method_exists($user, 'authorize') && $user->authorize('admin.super'));
+            // ✅ FIX: Autorizzazione compatibile con Grav 2.0
+            $isAuthorized = false;
+            if ($user && isset($user->authenticated) && $user->authenticated) {
+                if (method_exists($user, 'authorize')) {
+                    $isAuthorized = $user->authorize('admin.login') || $user->authorize('admin.super');
+                } else {
+                    $isAuthorized = true;
+                }
+            }
+            if (!$isAuthorized && $this->isAdmin()) {
+                $isAuthorized = true;
+            }
 
             if ($isAuthorized) {
                 $latestVersion = $this->fetchLatestTinyMCEVersion();
@@ -208,6 +225,7 @@ class ModernEditorPlugin extends Plugin
                     exit;
                 }
 
+                $admin = $this->grav['admin'] ?? null;
                 if ($status === 'success') {
                     if ($admin) {
                         $admin->setMessage($msg, 'info');
@@ -233,6 +251,7 @@ class ModernEditorPlugin extends Plugin
                     exit;
                 }
 
+                $admin = $this->grav['admin'] ?? null;
                 if ($admin) {
                     $admin->setMessage("Unauthorized action.", 'error');
                 } else {
@@ -243,11 +262,19 @@ class ModernEditorPlugin extends Plugin
 
         if ($action === 'remove_tinymce_local') {
             $user = $this->grav['user'] ?? null;
-            $admin = $this->grav['admin'] ?? null;
             
-            // ✅ FIX: Autorizzazione più rigorosa
-            $isAuthorized = ($admin && method_exists($admin, 'authorize') && $admin->authorize('admin.super'))
-                         || ($user && method_exists($user, 'authorize') && $user->authorize('admin.super'));
+            // ✅ FIX: Autorizzazione compatibile con Grav 2.0
+            $isAuthorized = false;
+            if ($user && isset($user->authenticated) && $user->authenticated) {
+                if (method_exists($user, 'authorize')) {
+                    $isAuthorized = $user->authorize('admin.login') || $user->authorize('admin.super');
+                } else {
+                    $isAuthorized = true;
+                }
+            }
+            if (!$isAuthorized && $this->isAdmin()) {
+                $isAuthorized = true;
+            }
 
             if ($isAuthorized) {
                 $pluginDir = $this->grav['locator']->findResource('plugin://' . $this->name, true, true);
@@ -272,6 +299,7 @@ class ModernEditorPlugin extends Plugin
                     exit;
                 }
 
+                $admin = $this->grav['admin'] ?? null;
                 if ($admin) {
                     $admin->setMessage("Offline TinyMCE files have been successfully removed!", 'info');
                 } else {
@@ -289,6 +317,7 @@ class ModernEditorPlugin extends Plugin
                     exit;
                 }
 
+                $admin = $this->grav['admin'] ?? null;
                 if ($admin) {
                     $admin->setMessage("Unauthorized action.", 'error');
                 } else {
@@ -299,12 +328,19 @@ class ModernEditorPlugin extends Plugin
 
         if ($action === 'get_config') {
             $user = $this->grav['user'] ?? null;
-            $admin = $this->grav['admin'] ?? null;
             
-            // ✅ FIX: Autorizzazione più rigorosa
-            $isAuthorized = ($admin && method_exists($admin, 'authorize') && $admin->authorize('admin.super'))
-                         || ($user && method_exists($user, 'authorize') && $user->authorize('admin.super'))
-                         || $this->isAdmin();
+            // ✅ FIX: Autorizzazione compatibile con Grav 2.0
+            $isAuthorized = false;
+            if ($user && isset($user->authenticated) && $user->authenticated) {
+                if (method_exists($user, 'authorize')) {
+                    $isAuthorized = $user->authorize('admin.login') || $user->authorize('admin.super');
+                } else {
+                    $isAuthorized = true;
+                }
+            }
+            if (!$isAuthorized && $this->isAdmin()) {
+                $isAuthorized = true;
+            }
 
             if ($isAuthorized) {
                 header('Content-Type: application/json');
@@ -325,12 +361,19 @@ class ModernEditorPlugin extends Plugin
 
         if ($action === 'get_status') {
             $user = $this->grav['user'] ?? null;
-            $admin = $this->grav['admin'] ?? null;
             
-            // ✅ FIX: Autorizzazione più rigorosa
-            $isAuthorized = ($admin && method_exists($admin, 'authorize') && $admin->authorize('admin.super'))
-                         || ($user && method_exists($user, 'authorize') && $user->authorize('admin.super'))
-                         || $this->isAdmin();
+            // ✅ FIX: Autorizzazione compatibile con Grav 2.0
+            $isAuthorized = false;
+            if ($user && isset($user->authenticated) && $user->authenticated) {
+                if (method_exists($user, 'authorize')) {
+                    $isAuthorized = $user->authorize('admin.login') || $user->authorize('admin.super');
+                } else {
+                    $isAuthorized = true;
+                }
+            }
+            if (!$isAuthorized && $this->isAdmin()) {
+                $isAuthorized = true;
+            }
 
             if ($isAuthorized) {
                 $pluginDir = $this->grav['locator']->findResource('plugin://' . $this->name, true, true);
