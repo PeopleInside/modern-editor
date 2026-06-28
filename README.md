@@ -6,12 +6,9 @@ A modern visual WYSIWYG editor (powered by [TinyMCE](https://www.tiny.cloud/)) f
 
 ## License & Third-Party Components
 
-This plugin is licensed under the MIT License.
+This plugin is licensed under the GNU General Public License v2.0 or later (GPLv2+).
 
-**Note about TinyMCE:** This plugin loads TinyMCE 7 from a public CDN (jsdelivr.net). 
-TinyMCE 7 is licensed under GPLv2+. By using this plugin, you are loading TinyMCE 
-from an external source at runtime. Please ensure this complies with your use case 
-and licensing requirements.
+**Note about TinyMCE:** This plugin loads TinyMCE 7 from a public CDN (jsdelivr.net). TinyMCE 7 is licensed under GPLv2+. This project is also licensed under GPLv2+ to ensure full compatibility with TinyMCE's licensing requirements and to avoid any legal ambiguity.
 
 ---
 
