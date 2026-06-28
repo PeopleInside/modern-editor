@@ -23,25 +23,32 @@ jobs:
 
       - name: Create plugin zip
         run: |
-          zip -r modern-editor.zip . \
-            -x ".git/*" \
-            -x ".github/*" \
-            -x ".gitignore" \
-            -x ".DS_Store" \
-            -x "*.log"
+          # Crea la cartella temporanea con il nome del plugin
+          mkdir -p modern-editor
+          
+          # Copia tutti i file necessari nella cartella, escludendo quelli non utili
+          rsync -av --progress ./ modern-editor/ \
+            --exclude .git \
+            --exclude .github \
+            --exclude .gitignore \
+            --exclude .DS_Store \
+            --exclude "*.log"
+          
+          # Crea lo zip con il nome versionato
+          zip -r modern-editor-${{ steps.get_version.outputs.VERSION }}.zip modern-editor/
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: modern-editor-${{ steps.get_version.outputs.VERSION }}
-          path: modern-editor.zip
+          path: modern-editor-${{ steps.get_version.outputs.VERSION }}.zip
           retention-days: 30
 
       - name: Create Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: modern-editor.zip
+          files: modern-editor-${{ steps.get_version.outputs.VERSION }}.zip
           generate_release_notes: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
