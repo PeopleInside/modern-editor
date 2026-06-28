@@ -15,40 +15,36 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Get version from tag
-        id: get_version
+      - name: Prepare plugin directory
         run: |
-          TAG=${GITHUB_REF#refs/tags/}
-          echo "VERSION=$TAG" >> $GITHUB_OUTPUT
-
-      - name: Create plugin zip
-        run: |
-          # Crea la cartella temporanea con il nome del plugin
+          # Crea la cartella con il nome ESATTO del plugin
           mkdir -p modern-editor
           
           # Copia tutti i file necessari nella cartella, escludendo quelli non utili
+          # Aggiunto --exclude modern-editor per sicurezza, per evitare ricorsioni
           rsync -av --progress ./ modern-editor/ \
             --exclude .git \
             --exclude .github \
             --exclude .gitignore \
             --exclude .DS_Store \
-            --exclude "*.log"
+            --exclude "*.log" \
+            --exclude modern-editor
           
-          # Crea lo zip con il nome versionato
-          zip -r modern-editor-${{ steps.get_version.outputs.VERSION }}.zip modern-editor/
+      - name: Create plugin zip
+        run: zip -r modern-editor.zip modern-editor/
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: modern-editor-${{ steps.get_version.outputs.VERSION }}
-          path: modern-editor-${{ steps.get_version.outputs.VERSION }}.zip
+          name: modern-editor-zip
+          path: modern-editor.zip
           retention-days: 30
 
       - name: Create Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: modern-editor-${{ steps.get_version.outputs.VERSION }}.zip
+          files: modern-editor.zip
           generate_release_notes: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
