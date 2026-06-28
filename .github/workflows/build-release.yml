@@ -3,56 +3,45 @@ name: Build Plugin Release
 on:
   push:
     tags:
-      - '*'  # Si attiva quando crei un tag tipo v1.0.0, v1.1.0, ecc.
+      - '*'  # Si attiva con qualsiasi tag (es. 1.1.6, 1.0.0, ecc.)
   workflow_dispatch: # Permette di lanciarla manualmente
 
 jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      contents: write  # ← QUESTO È NECESSARIO per creare release
+      contents: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Get version from tag
         id: get_version
-        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+        run: |
+          TAG=${GITHUB_REF#refs/tags/}
+          echo "VERSION=$TAG" >> $GITHUB_OUTPUT
 
       - name: Create plugin zip
         run: |
-          # Crea lo zip con il nome corretto del plugin
-          # Esclude file non necessari per la distribuzione
           zip -r modern-editor.zip . \
             -x ".git/*" \
             -x ".github/*" \
             -x ".gitignore" \
-            -x "*.md" \
-            -x "LICENSE" \
-            -x ".DS_Store"
-          
-          # Aggiungi comunque README.md e CHANGELOG.md se servono
-          zip modern-editor.zip README.md CHANGELOG.md 2>/dev/null || true
+            -x ".DS_Store" \
+            -x "*.log"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: modern-editor
+          name: modern-editor-${{ steps.get_version.outputs.VERSION }}
           path: modern-editor.zip
+          retention-days: 30
 
       - name: Create Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           files: modern-editor.zip
-          name: Modern Editor v${{ steps.get_version.outputs.VERSION }}
-          body: |
-            ## Modern Editor v${{ steps.get_version.outputs.VERSION }}
-            
-            ### Installazione
-            1. Scarica `modern-editor.zip`
-            2. Estrai in `user/plugins/modern-editor/`
-            3. Abilita il plugin da Admin Next → Plugins
           generate_release_notes: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
