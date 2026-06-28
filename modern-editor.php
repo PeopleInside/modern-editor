@@ -7,7 +7,7 @@ use RocketTheme\Toolbox\Event\Event;
 
 /*
  * Modern Editor Plugin for Grav
- * Copyright (C) [Anno] [Tuo Nome/PeopleInside]
+ * Copyright (C) [2026] [PeopleInside]
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
