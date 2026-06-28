@@ -3,6 +3,16 @@
  * Renders the beautiful local status card with fully integrated AJAX.
  */
 
+/*
+ * Modern Editor Plugin for Grav
+ * Copyright (C) [2026] [PeopleInside]
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License
+ * as published by the Free Software Foundation; either version 2
+ * of the License, or (at your option) any later version.
+ */
+
 const TAG = window.__GRAV_FIELD_TAG;
 
 function getAdminPath() {
