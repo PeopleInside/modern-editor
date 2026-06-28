@@ -3,13 +3,14 @@ name: Build Plugin Release
 on:
   push:
     tags:
-      - '*'  # Si attiva quando crei un tag tipo v1.0.0, v1.1.0, ecc.
-  workflow_dispatch:  # Permette di lanciarla manualmente
+      - 'v*'  # Si attiva quando crei un tag tipo v1.0.0, v1.1.0, ecc.
+  workflow_dispatch: # Permette di lanciarla manualmente
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    
+    permissions:
+      contents: write  # ← QUESTO È NECESSARIO per creare release
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
