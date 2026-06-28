@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.1.6
+
+- **License Change**: Changed license from MIT to GNU General Public License v2.0 or later (GPLv2+) for full compatibility with TinyMCE 7's licensing requirements.
+- Updated `blueprints.yaml` to reflect the new GPL license.
+- Updated `README.md` with new licensing information.
+
 ## v1.1.5
 * Added full support for **Local Self-Hosting (Offline Mode)**, allowing the editor to be loaded directly from the local server without any external CDN calls.
 * Removed unrequested TinyMCE version selection; the editor is now streamlined to use standard stable v7.4.0 with an integrated automatic downloader.
