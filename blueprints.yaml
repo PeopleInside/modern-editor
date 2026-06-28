@@ -8,7 +8,7 @@ author:
 homepage: https://github.com/PeopleInside/modern-editor
 keywords: grav, plugin, editor, wysiwyg, admin-next, visual editor
 bugs: https://github.com/PeopleInside/modern-editor/issues
-license: MIT
+license: GPL
 
 compatibility:
   - "2.0"
