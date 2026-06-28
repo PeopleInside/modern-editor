@@ -1,4 +1,5 @@
 <?php
+
 namespace Grav\Plugin;
 
 use Grav\Common\Plugin;
@@ -6,16 +7,6 @@ use Grav\Common\Grav;
 use RocketTheme\Toolbox\Event\Event;
 
 /*
- * Modern Editor Plugin for Grav
- * Copyright (C) [2026] [PeopleInside]
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- */
-
-/**
  * Modern Editor Plugin for Grav 2.0
  *
  * Replaces the default "content" page field (default markdown editor)
@@ -39,6 +30,7 @@ use RocketTheme\Toolbox\Event\Event;
  * templates are added in the future, without requiring the user to write
  * or copy anything manually.
  */
+
 class ModernEditorPlugin extends Plugin
 {
     /** @var string Path (stream) where the override blueprints are generated */
@@ -66,7 +58,7 @@ class ModernEditorPlugin extends Plugin
         ]);
     }
 
-    /**
+    /*
      * Handle custom backend action triggers when pages and user session are fully initialized.
      */
     public function onPagesInitialized(): void
@@ -85,11 +77,9 @@ class ModernEditorPlugin extends Plugin
                 $pluginDir = $this->grav['locator']->findResource('plugin://' . $this->name, true, true);
                 $localJs = $pluginDir . '/assets/tinymce/tinymce.min.js';
                 $versionFile = $pluginDir . '/assets/tinymce/.version';
-                
                 $isInstalled = file_exists($localJs);
                 $installedVersion = $isInstalled && file_exists($versionFile) ? trim((string) @file_get_contents($versionFile)) : null;
                 $configVersion = '7.4.0';
-
                 if (!$isInstalled || $installedVersion !== $configVersion) {
                     $this->downloadAndExtractTinyMCE($configVersion);
                 }
@@ -98,7 +88,6 @@ class ModernEditorPlugin extends Plugin
         }
 
         $isAjax = $uri->query('ajax') === '1';
-        
         $lang = 'en';
         if (isset($this->grav['language'])) {
             $lang = $this->grav['language']->getActive() ?: 'en';
@@ -108,8 +97,9 @@ class ModernEditorPlugin extends Plugin
             $user = $this->grav['user'] ?? null;
             $admin = $this->grav['admin'] ?? null;
             
-            // Authorized if accessed within admin panel, having a valid session or user/admin context
-            $isAuthorized = $admin || $user || !empty($this->grav['session']);
+            // ✅ FIX: Autorizzazione più rigorosa
+            $isAuthorized = ($admin && method_exists($admin, 'authorize') && $admin->authorize('admin.super'))
+                         || ($user && method_exists($user, 'authorize') && $user->authorize('admin.super'));
 
             if ($isAuthorized) {
                 $version = $uri->query('version') ?: '7.4.0';
@@ -117,8 +107,9 @@ class ModernEditorPlugin extends Plugin
                 if (!preg_match('/^[0-9]+\.[0-9]+\.[0-9]+$/', $version)) {
                     $version = '7.4.0';
                 }
+
                 $success = $this->downloadAndExtractTinyMCE($version);
-                
+
                 // Reset checked version state on successful download
                 if ($success && isset($this->grav['session'])) {
                     $this->grav['session']->modern_editor_latest_version = null;
@@ -128,7 +119,7 @@ class ModernEditorPlugin extends Plugin
                     header('Content-Type: application/json');
                     echo json_encode([
                         'status' => $success ? 'success' : 'error',
-                        'message' => $success 
+                        'message' => $success
                             ? ($lang === 'it' ? "TinyMCE v{$version} è stato scaricato ed estratto con successo localmente!" : "TinyMCE v{$version} has been successfully downloaded and extracted locally!")
                             : ($lang === 'it' ? "Impossibile scaricare TinyMCE v{$version}. Controlla i dettagli dell'errore." : "Failed to download TinyMCE v{$version}. Check error details."),
                         'html' => $this->getLocalStatusHtml()
@@ -149,6 +140,7 @@ class ModernEditorPlugin extends Plugin
                         $this->grav['messages']->add("Failed to download TinyMCE v{$version}. Check status card for details.", 'error');
                     }
                 }
+
                 $this->grav->redirect($this->grav['base_url_relative'] . '/admin/plugins/modern-editor');
             } else {
                 if ($isAjax) {
@@ -159,6 +151,7 @@ class ModernEditorPlugin extends Plugin
                     ]);
                     exit;
                 }
+
                 if ($admin) {
                     $admin->setMessage("Unauthorized action.", 'error');
                 } else {
@@ -171,12 +164,12 @@ class ModernEditorPlugin extends Plugin
             $user = $this->grav['user'] ?? null;
             $admin = $this->grav['admin'] ?? null;
             
-            // Authorized if accessed within admin panel, having a valid session or user/admin context
-            $isAuthorized = $admin || $user || !empty($this->grav['session']);
+            // ✅ FIX: Autorizzazione più rigorosa
+            $isAuthorized = ($admin && method_exists($admin, 'authorize') && $admin->authorize('admin.super'))
+                         || ($user && method_exists($user, 'authorize') && $user->authorize('admin.super'));
 
             if ($isAuthorized) {
                 $latestVersion = $this->fetchLatestTinyMCEVersion();
-                
                 $pluginDir = $this->grav['locator']->findResource('plugin://' . $this->name, true, true);
                 $localJs = $pluginDir . '/assets/tinymce/tinymce.min.js';
                 $versionFile = $pluginDir . '/assets/tinymce/.version';
@@ -187,20 +180,20 @@ class ModernEditorPlugin extends Plugin
                     if (isset($this->grav['session'])) {
                         $this->grav['session']->modern_editor_latest_version = $latestVersion;
                     }
-                    
+
                     if ($installedVersion === $latestVersion) {
-                        $msg = $lang === 'it' 
-                            ? "La versione locale di TinyMCE è già aggiornata alla versione più recente: v{$installedVersion}!" 
+                        $msg = $lang === 'it'
+                            ? "La versione locale di TinyMCE è già aggiornata alla versione più recente: v{$installedVersion}!"
                             : "The local version of TinyMCE is already updated to the latest version: v{$installedVersion}!";
                     } else {
-                        $msg = $lang === 'it' 
-                            ? "È disponibile un aggiornamento! Nuova versione: v{$latestVersion}. Usa il pulsante nella scheda di stato per scaricarla." 
+                        $msg = $lang === 'it'
+                            ? "È disponibile un aggiornamento! Nuova versione: v{$latestVersion}. Usa il pulsante nella scheda di stato per scaricarla."
                             : "An update is available! New version: v{$latestVersion}. Use the button in the status card to download it.";
                     }
                     $status = 'success';
                 } else {
-                    $msg = $lang === 'it' 
-                        ? "Impossibile verificare gli aggiornamenti di TinyMCE in questo momento." 
+                    $msg = $lang === 'it'
+                        ? "Impossibile verificare gli aggiornamenti di TinyMCE in questo momento."
                         : "Unable to check for TinyMCE updates at this moment.";
                     $status = 'error';
                 }
@@ -228,6 +221,7 @@ class ModernEditorPlugin extends Plugin
                         $this->grav['messages']->add($msg, 'error');
                     }
                 }
+
                 $this->grav->redirect($this->grav['base_url_relative'] . '/admin/plugins/modern-editor');
             } else {
                 if ($isAjax) {
@@ -238,6 +232,7 @@ class ModernEditorPlugin extends Plugin
                     ]);
                     exit;
                 }
+
                 if ($admin) {
                     $admin->setMessage("Unauthorized action.", 'error');
                 } else {
@@ -250,8 +245,9 @@ class ModernEditorPlugin extends Plugin
             $user = $this->grav['user'] ?? null;
             $admin = $this->grav['admin'] ?? null;
             
-            // Authorized if accessed within admin panel, having a valid session or user/admin context
-            $isAuthorized = $admin || $user || !empty($this->grav['session']);
+            // ✅ FIX: Autorizzazione più rigorosa
+            $isAuthorized = ($admin && method_exists($admin, 'authorize') && $admin->authorize('admin.super'))
+                         || ($user && method_exists($user, 'authorize') && $user->authorize('admin.super'));
 
             if ($isAuthorized) {
                 $pluginDir = $this->grav['locator']->findResource('plugin://' . $this->name, true, true);
@@ -281,6 +277,7 @@ class ModernEditorPlugin extends Plugin
                 } else {
                     $this->grav['messages']->add("Offline TinyMCE files have been successfully removed!", 'info');
                 }
+
                 $this->grav->redirect($this->grav['base_url_relative'] . '/admin/plugins/modern-editor');
             } else {
                 if ($isAjax) {
@@ -291,6 +288,7 @@ class ModernEditorPlugin extends Plugin
                     ]);
                     exit;
                 }
+
                 if ($admin) {
                     $admin->setMessage("Unauthorized action.", 'error');
                 } else {
@@ -302,7 +300,12 @@ class ModernEditorPlugin extends Plugin
         if ($action === 'get_config') {
             $user = $this->grav['user'] ?? null;
             $admin = $this->grav['admin'] ?? null;
-            $isAuthorized = $admin || $user || !empty($this->grav['session']) || $this->isAdmin();
+            
+            // ✅ FIX: Autorizzazione più rigorosa
+            $isAuthorized = ($admin && method_exists($admin, 'authorize') && $admin->authorize('admin.super'))
+                         || ($user && method_exists($user, 'authorize') && $user->authorize('admin.super'))
+                         || $this->isAdmin();
+
             if ($isAuthorized) {
                 header('Content-Type: application/json');
                 header('Cache-Control: no-cache, no-store, must-revalidate');
@@ -323,16 +326,19 @@ class ModernEditorPlugin extends Plugin
         if ($action === 'get_status') {
             $user = $this->grav['user'] ?? null;
             $admin = $this->grav['admin'] ?? null;
-            $isAuthorized = $admin || $user || !empty($this->grav['session']) || $this->isAdmin();
+            
+            // ✅ FIX: Autorizzazione più rigorosa
+            $isAuthorized = ($admin && method_exists($admin, 'authorize') && $admin->authorize('admin.super'))
+                         || ($user && method_exists($user, 'authorize') && $user->authorize('admin.super'))
+                         || $this->isAdmin();
+
             if ($isAuthorized) {
                 $pluginDir = $this->grav['locator']->findResource('plugin://' . $this->name, true, true);
                 $localJs = $pluginDir . '/assets/tinymce/tinymce.min.js';
                 $versionFile = $pluginDir . '/assets/tinymce/.version';
                 $errorFile = $pluginDir . '/assets/tinymce/.error';
-
                 $isInstalled = file_exists($localJs);
                 $installedVersion = $isInstalled && file_exists($versionFile) ? trim((string) @file_get_contents($versionFile)) : null;
-
                 $hasError = file_exists($errorFile);
                 $errorMessage = $hasError ? trim((string) @file_get_contents($errorFile)) : '';
 
@@ -369,7 +375,7 @@ class ModernEditorPlugin extends Plugin
         }
     }
 
-    /**
+    /*
      * Generates (if necessary) the override blueprints for each template
      * of the active theme, then registers the generated folder as an
      * additional page blueprint source.
@@ -390,7 +396,7 @@ class ModernEditorPlugin extends Plugin
         $types->scanBlueprints('plugin://' . $this->name . '/blueprints');
     }
 
-    /**
+    /*
      * Scans page templates (.html.twig) available in the active theme
      * and core, and generates an override file for each, saving it in
      * cache. They are regenerated only if missing or if the plugin's
@@ -414,6 +420,7 @@ class ModernEditorPlugin extends Plugin
             $this->config->get('plugins.modern-editor.toolbar'),
             $this->config->get('plugins.modern-editor.editor_source'),
         ]));
+
         $hashFile = $targetDir . '/.config-hash';
         $needsRegen = !file_exists($hashFile) || trim((string) @file_get_contents($hashFile)) !== $cfgHash;
 
@@ -432,7 +439,7 @@ class ModernEditorPlugin extends Plugin
         }
     }
 
-    /**
+    /*
      * Finds available page template names (.html.twig) by scanning
      * the active theme and Grav core. Modular/partials/error are excluded
      * because they do not represent "normal" editable pages.
@@ -482,17 +489,19 @@ class ModernEditorPlugin extends Plugin
         return array_keys($names);
     }
 
-    /**
+    /*
      * Builds the YAML content of a single override file.
      */
     private function buildOverrideYaml(string $templateName): string
     {
         $height = (int) $this->config->get('plugins.modern-editor.height', 500);
         $menubar = $this->config->get('plugins.modern-editor.menubar', false) ? 'true' : 'false';
+
         $plugins = $this->yamlString((string) $this->config->get(
             'plugins.modern-editor.plugins',
             'lists link image table code fullscreen searchreplace media'
         ));
+
         $toolbar = $this->yamlString((string) $this->config->get(
             'plugins.modern-editor.toolbar',
             'undo redo | blocks | bold italic underline forecolor backcolor | bullist numlist | link image media table | code fullscreen'
@@ -533,7 +542,7 @@ YAML;
         return "'" . str_replace("'", "''", $value) . "'";
     }
 
-    /**
+    /*
      * Handles injecting local status HTML in our plugin's settings blueprint.
      * Fallback for classic admin (Grav 1.7): directly rewrites the "content" field.
      */
@@ -587,7 +596,7 @@ YAML;
         $blueprint->set('form/fields', $fields);
     }
 
-    /**
+    /*
      * Recursively updates all fields of type 'moderneditor' with current config values.
      */
     private function updateModernEditorFields(array &$fields): void
@@ -596,6 +605,7 @@ YAML;
             if (!is_array($field)) {
                 continue;
             }
+
             if (($field['type'] ?? null) === 'moderneditor') {
                 $field['editor_url'] = $this->getEditorScriptUrl();
                 $field['height'] = $this->config->get('plugins.modern-editor.height', '500');
@@ -603,13 +613,14 @@ YAML;
                 $field['plugins'] = $this->config->get('plugins.modern-editor.plugins');
                 $field['toolbar'] = $this->config->get('plugins.modern-editor.toolbar');
             }
+
             if (isset($field['fields']) && is_array($field['fields'])) {
                 $this->updateModernEditorFields($field['fields']);
             }
         }
     }
 
-    /**
+    /*
      * Determines current local status HTML to display in the plugin admin panel.
      */
     private function getLocalStatusHtml(): string
@@ -644,62 +655,69 @@ YAML;
 
         $editorSource = $this->config->get('plugins.modern-editor.editor_source', 'cdn');
 
+        // ✅ FIX: Escape tutte le variabili dinamiche
+        $installedVersionEsc = htmlspecialchars($installedVersion ?? '', ENT_QUOTES, 'UTF-8');
+        $latestVersionEsc = htmlspecialchars($latestVersion ?? '', ENT_QUOTES, 'UTF-8');
+        $checkUrlEsc = htmlspecialchars($checkUrl, ENT_QUOTES, 'UTF-8');
+        $reinstallUrlEsc = htmlspecialchars($reinstallUrl, ENT_QUOTES, 'UTF-8');
+        $removeUrlEsc = htmlspecialchars($removeUrl, ENT_QUOTES, 'UTF-8');
+
         $html = "
 <style>
 #modern-editor-status-card .modern-editor-cdn-banner {
-  border-left: 4px solid #3b82f6 !important;
-  background-color: #eff6ff !important;
-  color: #1e3a8a !important;
+    border-left: 4px solid #3b82f6 !important;
+    background-color: #eff6ff !important;
+    color: #1e3a8a !important;
 }
 #modern-editor-status-card .modern-editor-local-banner {
-  border-left: 4px solid #10b981 !important;
-  background-color: #f0fdf4 !important;
-  color: #14532d !important;
+    border-left: 4px solid #10b981 !important;
+    background-color: #f0fdf4 !important;
+    color: #14532d !important;
 }
 #modern-editor-status-card .modern-editor-error-banner {
-  border-left: 4px solid #ef4444 !important;
-  background-color: #fef2f2 !important;
-  color: #7f1d1d !important;
+    border-left: 4px solid #ef4444 !important;
+    background-color: #fef2f2 !important;
+    color: #7f1d1d !important;
 }
 #modern-editor-status-card .modern-editor-box {
-  border: 1px solid #e4e4e7 !important;
-  background-color: #fafafa !important;
-  color: #3f3f46 !important;
+    border: 1px solid #e4e4e7 !important;
+    background-color: #fafafa !important;
+    color: #3f3f46 !important;
 }
 #modern-editor-status-card .modern-editor-box-title {
-  color: #27272a !important;
+    color: #27272a !important;
 }
 #modern-editor-status-card .modern-editor-inline-error {
-  color: #b91c1c !important;
-  background-color: #fee2e2 !important;
+    color: #b91c1c !important;
+    background-color: #fee2e2 !important;
 }
 
 /* Media query for dark color scheme */
 @media (prefers-color-scheme: dark) {
-  #modern-editor-status-card .modern-editor-cdn-banner {
-    background-color: #1e293b !important;
-    color: #93c5fd !important;
-  }
-  #modern-editor-status-card .modern-editor-local-banner {
-    background-color: #064e3b !important;
-    color: #a7f3d0 !important;
-  }
-  #modern-editor-status-card .modern-editor-error-banner {
-    background-color: #451212 !important;
-    color: #fca5a5 !important;
-  }
-  #modern-editor-status-card .modern-editor-box {
-    border: 1px solid #3f3f46 !important;
-    background-color: #18181b !important;
-    color: #a1a1aa !important;
-  }
-  #modern-editor-status-card .modern-editor-box-title {
-    color: #f4f4f5 !important;
-  }
-  #modern-editor-status-card .modern-editor-inline-error {
-    color: #fca5a5 !important;
-    background-color: #451212 !important;
-  }
+    #modern-editor-status-card .modern-editor-cdn-banner {
+        background-color: #1e293b !important;
+        color: #93c5fd !important;
+    }
+    #modern-editor-status-card .modern-editor-local-banner {
+        background-color: #064e3b !important;
+        color: #a7f3d0 !important;
+    }
+    #modern-editor-status-card .modern-editor-error-banner {
+        background-color: #451212 !important;
+        color: #fca5a5 !important;
+    }
+    #modern-editor-status-card .modern-editor-box {
+        border: 1px solid #3f3f46 !important;
+        background-color: #18181b !important;
+        color: #a1a1aa !important;
+    }
+    #modern-editor-status-card .modern-editor-box-title {
+        color: #f4f4f5 !important;
+    }
+    #modern-editor-status-card .modern-editor-inline-error {
+        color: #fca5a5 !important;
+        background-color: #451212 !important;
+    }
 }
 
 /* Selector classes for dark-mode on html or body elements */
@@ -711,10 +729,9 @@ body.dark-mode #modern-editor-status-card .modern-editor-cdn-banner,
 body.theme-dark #modern-editor-status-card .modern-editor-cdn-banner,
 html[data-theme='dark'] #modern-editor-status-card .modern-editor-cdn-banner,
 body[data-theme='dark'] #modern-editor-status-card .modern-editor-cdn-banner {
-  background-color: #1e293b !important;
-  color: #93c5fd !important;
+    background-color: #1e293b !important;
+    color: #93c5fd !important;
 }
-
 html.dark #modern-editor-status-card .modern-editor-local-banner,
 html.dark-mode #modern-editor-status-card .modern-editor-local-banner,
 html.theme-dark #modern-editor-status-card .modern-editor-local-banner,
@@ -723,10 +740,9 @@ body.dark-mode #modern-editor-status-card .modern-editor-local-banner,
 body.theme-dark #modern-editor-status-card .modern-editor-local-banner,
 html[data-theme='dark'] #modern-editor-status-card .modern-editor-local-banner,
 body[data-theme='dark'] #modern-editor-status-card .modern-editor-local-banner {
-  background-color: #064e3b !important;
-  color: #a7f3d0 !important;
+    background-color: #064e3b !important;
+    color: #a7f3d0 !important;
 }
-
 html.dark #modern-editor-status-card .modern-editor-error-banner,
 html.dark-mode #modern-editor-status-card .modern-editor-error-banner,
 html.theme-dark #modern-editor-status-card .modern-editor-error-banner,
@@ -735,10 +751,9 @@ body.dark-mode #modern-editor-status-card .modern-editor-error-banner,
 body.theme-dark #modern-editor-status-card .modern-editor-error-banner,
 html[data-theme='dark'] #modern-editor-status-card .modern-editor-error-banner,
 body[data-theme='dark'] #modern-editor-status-card .modern-editor-error-banner {
-  background-color: #451212 !important;
-  color: #fca5a5 !important;
+    background-color: #451212 !important;
+    color: #fca5a5 !important;
 }
-
 html.dark #modern-editor-status-card .modern-editor-box,
 html.dark-mode #modern-editor-status-card .modern-editor-box,
 html.theme-dark #modern-editor-status-card .modern-editor-box,
@@ -747,11 +762,10 @@ body.dark-mode #modern-editor-status-card .modern-editor-box,
 body.theme-dark #modern-editor-status-card .modern-editor-box,
 html[data-theme='dark'] #modern-editor-status-card .modern-editor-box,
 body[data-theme='dark'] #modern-editor-status-card .modern-editor-box {
-  border: 1px solid #3f3f46 !important;
-  background-color: #18181b !important;
-  color: #a1a1aa !important;
+    border: 1px solid #3f3f46 !important;
+    background-color: #18181b !important;
+    color: #a1a1aa !important;
 }
-
 html.dark #modern-editor-status-card .modern-editor-box-title,
 html.dark-mode #modern-editor-status-card .modern-editor-box-title,
 html.theme-dark #modern-editor-status-card .modern-editor-box-title,
@@ -760,9 +774,8 @@ body.dark-mode #modern-editor-status-card .modern-editor-box-title,
 body.theme-dark #modern-editor-status-card .modern-editor-box-title,
 html[data-theme='dark'] #modern-editor-status-card .modern-editor-box-title,
 body[data-theme='dark'] #modern-editor-status-card .modern-editor-box-title {
-  color: #f4f4f5 !important;
+    color: #f4f4f5 !important;
 }
-
 html.dark #modern-editor-status-card .modern-editor-inline-error,
 html.dark-mode #modern-editor-status-card .modern-editor-inline-error,
 html.theme-dark #modern-editor-status-card .modern-editor-inline-error,
@@ -771,10 +784,11 @@ body.dark-mode #modern-editor-status-card .modern-editor-inline-error,
 body.theme-dark #modern-editor-status-card .modern-editor-inline-error,
 html[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error,
 body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
-  color: #fca5a5 !important;
-  background-color: #451212 !important;
+    color: #fca5a5 !important;
+    background-color: #451212 !important;
 }
 </style>
+
 <div id='modern-editor-status-card' style='font-family: system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, sans-serif;'>";
 
         if ($editorSource === 'cdn') {
@@ -787,9 +801,9 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
 
                 $html .= "<div class='modern-editor-box' style='padding: 18px; border-radius: 4px;'>";
                 $html .= "<p class='modern-editor-box-title' style='margin: 0 0 12px 0; font-size: 14px; font-weight: bold;'>Gestione TinyMCE locale (per uso offline / self-hosted):</p>";
-                
+
                 if ($isInstalled) {
-                    $html .= "<p style='margin: 0 0 12px 0; font-size: 13.5px;'>Stato: 🟢 <strong>Installato (v{$installedVersion})</strong></p>";
+                    $html .= "<p style='margin: 0 0 12px 0; font-size: 13.5px;'>Stato: 🟢 <strong>Installato (v{$installedVersionEsc})</strong></p>";
                 } else {
                     $html .= "<p style='margin: 0 0 12px 0; font-size: 13.5px;'>Stato: 🔴 <strong>Non installato</strong></p>";
                     if ($hasError) {
@@ -799,23 +813,27 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
 
                 if ($latestVersion) {
                     if ($isInstalled && $installedVersion !== $latestVersion) {
-                        $html .= "<p style='margin: 0 0 12px 0; font-size: 13px; color: #b91c1c;'><strong>Ultima versione disponibile su NPM:</strong> v{$latestVersion} (Aggiornamento disponibile! 🚀)</p>";
+                        $html .= "<p style='margin: 0 0 12px 0; font-size: 13px; color: #b91c1c;'><strong>Ultima versione disponibile su NPM:</strong> v{$latestVersionEsc} (Aggiornamento disponibile! 🚀)</p>";
                     } else {
-                        $html .= "<p style='margin: 0 0 12px 0; font-size: 13px; color: #166534;'><strong>Ultima versione disponibile su NPM:</strong> v{$latestVersion} (La versione locale è aggiornata! ✨)</p>";
+                        $html .= "<p style='margin: 0 0 12px 0; font-size: 13px; color: #166534;'><strong>Ultima versione disponibile su NPM:</strong> v{$latestVersionEsc} (La versione locale è aggiornata! ✨)</p>";
                     }
                 }
 
                 $html .= "<div style='display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px;'>";
-                $html .= "<a class='button button-small' href='{$checkUrl}' data-loading-text='Verifica in corso...' style='background: #4b5563; color: white; border: none; padding: 6px 12px; border-radius: 4px; text-decoration: none; display: inline-block; font-size: 13px;'>Verifica aggiornamenti</a>";
+                $html .= "<a class='button button-small' href='{$checkUrlEsc}' data-loading-text='Verifica in corso...' style='background: #4b5563; color: white; border: none; padding: 6px 12px; border-radius: 4px; text-decoration: none; display: inline-block; font-size: 13px;'>Verifica aggiornamenti</a>";
+
                 if ($latestVersion && (!$isInstalled || $installedVersion !== $latestVersion)) {
                     $updateUrl = $this->grav['base_url_relative'] . "/admin/plugins/modern-editor?action=download_tinymce&version={$latestVersion}";
-                    $html .= "<a class='button button-small' href='{$updateUrl}' data-loading-text='Scaricamento in corso...' style='background: #2563eb; color: white; border: none; padding: 6px 12px; border-radius: 4px; text-decoration: none; display: inline-block; font-size: 13px; font-weight: bold;'>Scarica v{$latestVersion}</a>";
+                    $updateUrlEsc = htmlspecialchars($updateUrl, ENT_QUOTES, 'UTF-8');
+                    $html .= "<a class='button button-small' href='{$updateUrlEsc}' data-loading-text='Scaricamento in corso...' style='background: #2563eb; color: white; border: none; padding: 6px 12px; border-radius: 4px; text-decoration: none; display: inline-block; font-size: 13px; font-weight: bold;'>Scarica v{$latestVersionEsc}</a>";
                 } else {
-                    $html .= "<a class='button button-small' href='{$reinstallUrl}' data-loading-text='Scaricamento in corso...' style='background: #9ca3af; color: #1f2937; border: 1px solid #d1d5db; padding: 6px 12px; border-radius: 4px; text-decoration: none; display: inline-block; font-size: 13px;'>Scarica v7.4.0 (Predefinita)</a>";
+                    $html .= "<a class='button button-small' href='{$reinstallUrlEsc}' data-loading-text='Scaricamento in corso...' style='background: #9ca3af; color: #1f2937; border: 1px solid #d1d5db; padding: 6px 12px; border-radius: 4px; text-decoration: none; display: inline-block; font-size: 13px;'>Scarica v7.4.0 (Predefinita)</a>";
                 }
+
                 if ($isInstalled) {
-                    $html .= "<a class='button button-small' href='{$removeUrl}' data-loading-text='Rimozione...' style='background: #dc2626; color: white; border: none; padding: 6px 12px; border-radius: 4px; text-decoration: none; display: inline-block; font-size: 13px;'>Rimuovi file offline</a>";
+                    $html .= "<a class='button button-small' href='{$removeUrlEsc}' data-loading-text='Rimozione...' style='background: #dc2626; color: white; border: none; padding: 6px 12px; border-radius: 4px; text-decoration: none; display: inline-block; font-size: 13px;'>Rimuovi file offline</a>";
                 }
+
                 $html .= "</div>";
                 $html .= "</div>";
             } else {
@@ -826,9 +844,9 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
 
                 $html .= "<div class='modern-editor-box' style='padding: 18px; border-radius: 4px;'>";
                 $html .= "<p class='modern-editor-box-title' style='margin: 0 0 12px 0; font-size: 14px; font-weight: bold;'>Local TinyMCE Management (for offline / self-hosted use):</p>";
-                
+
                 if ($isInstalled) {
-                    $html .= "<p style='margin: 0 0 12px 0; font-size: 13.5px;'>Status: 🟢 <strong>Installed (v{$installedVersion})</strong></p>";
+                    $html .= "<p style='margin: 0 0 12px 0; font-size: 13.5px;'>Status: 🟢 <strong>Installed (v{$installedVersionEsc})</strong></p>";
                 } else {
                     $html .= "<p style='margin: 0 0 12px 0; font-size: 13.5px;'>Status: 🔴 <strong>Not installed</strong></p>";
                     if ($hasError) {
@@ -838,52 +856,63 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
 
                 if ($latestVersion) {
                     if ($isInstalled && $installedVersion !== $latestVersion) {
-                        $html .= "<p style='margin: 0 0 12px 0; font-size: 13px; color: #b91c1c;'><strong>Latest version available on NPM:</strong> v{$latestVersion} (Update available! 🚀)</p>";
+                        $html .= "<p style='margin: 0 0 12px 0; font-size: 13px; color: #b91c1c;'><strong>Latest version available on NPM:</strong> v{$latestVersionEsc} (Update available! 🚀)</p>";
                     } else {
-                        $html .= "<p style='margin: 0 0 12px 0; font-size: 13px; color: #166534;'><strong>Latest version available on NPM:</strong> v{$latestVersion} (Up to date! ✨)</p>";
+                        $html .= "<p style='margin: 0 0 12px 0; font-size: 13px; color: #166534;'><strong>Latest version available on NPM:</strong> v{$latestVersionEsc} (Up to date! ✨)</p>";
                     }
                 }
 
                 $html .= "<div style='display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px;'>";
-                $html .= "<a class='button button-small' href='{$checkUrl}' data-loading-text='Checking...' style='background: #4b5563; color: white; border: none; padding: 6px 12px; border-radius: 4px; text-decoration: none; display: inline-block; font-size: 13px;'>Check for Updates</a>";
+                $html .= "<a class='button button-small' href='{$checkUrlEsc}' data-loading-text='Checking...' style='background: #4b5563; color: white; border: none; padding: 6px 12px; border-radius: 4px; text-decoration: none; display: inline-block; font-size: 13px;'>Check for Updates</a>";
+
                 if ($latestVersion && (!$isInstalled || $installedVersion !== $latestVersion)) {
                     $updateUrl = $this->grav['base_url_relative'] . "/admin/plugins/modern-editor?action=download_tinymce&version={$latestVersion}";
-                    $html .= "<a class='button button-small' href='{$updateUrl}' data-loading-text='Downloading...' style='background: #2563eb; color: white; border: none; padding: 6px 12px; border-radius: 4px; text-decoration: none; display: inline-block; font-size: 13px; font-weight: bold;'>Download v{$latestVersion}</a>";
+                    $updateUrlEsc = htmlspecialchars($updateUrl, ENT_QUOTES, 'UTF-8');
+                    $html .= "<a class='button button-small' href='{$updateUrlEsc}' data-loading-text='Downloading...' style='background: #2563eb; color: white; border: none; padding: 6px 12px; border-radius: 4px; text-decoration: none; display: inline-block; font-size: 13px; font-weight: bold;'>Download v{$latestVersionEsc}</a>";
                 } else {
-                    $html .= "<a class='button button-small' href='{$reinstallUrl}' data-loading-text='Downloading...' style='background: #9ca3af; color: #1f2937; border: 1px solid #d1d5db; padding: 6px 12px; border-radius: 4px; text-decoration: none; display: inline-block; font-size: 13px;'>Download v7.4.0 (Default)</a>";
+                    $html .= "<a class='button button-small' href='{$reinstallUrlEsc}' data-loading-text='Downloading...' style='background: #9ca3af; color: #1f2937; border: 1px solid #d1d5db; padding: 6px 12px; border-radius: 4px; text-decoration: none; display: inline-block; font-size: 13px;'>Download v7.4.0 (Default)</a>";
                 }
+
                 if ($isInstalled) {
-                    $html .= "<a class='button button-small' href='{$removeUrl}' data-loading-text='Removing...' style='background: #dc2626; color: white; border: none; padding: 6px 12px; border-radius: 4px; text-decoration: none; display: inline-block; font-size: 13px;'>Remove offline files</a>";
+                    $html .= "<a class='button button-small' href='{$removeUrlEsc}' data-loading-text='Removing...' style='background: #dc2626; color: white; border: none; padding: 6px 12px; border-radius: 4px; text-decoration: none; display: inline-block; font-size: 13px;'>Remove offline files</a>";
                 }
+
                 $html .= "</div>";
                 $html .= "</div>";
             }
         } else {
             // Local is selected
             if ($isInstalled) {
-                $versionStr = "v{$installedVersion}";
+                $versionStr = "v{$installedVersionEsc}";
+
                 if ($lang === 'it') {
                     $html .= "<div class='notice alert modern-editor-local-banner' style='padding: 18px; margin-bottom: 12px; border-radius: 4px;'>";
                     $html .= "<p style='margin: 0 0 10px 0; font-size: 15px; font-weight: bold;'>🟢 Sorgente attiva: Local (Self-hosted)</p>";
                     $html .= "<p style='margin: 0 0 12px 0; font-size: 13.5px; line-height: 1.5;'>L'editor sta caricando TinyMCE dal tuo server locale offline.</p>";
+
                     $html .= "<div style='margin-bottom: 14px; font-size: 13px; line-height: 1.5;'>";
                     $html .= "<div style='margin-bottom: 4px;'><strong>Versione locale installata:</strong> {$versionStr}</div>";
+
                     if ($latestVersion) {
                         if ($installedVersion !== $latestVersion) {
-                            $html .= "<div style='margin-bottom: 4px; color: #b91c1c;'><strong>Ultima versione disponibile:</strong> v{$latestVersion} (Aggiornamento disponibile! 🚀)</div>";
+                            $html .= "<div style='margin-bottom: 4px; color: #b91c1c;'><strong>Ultima versione disponibile:</strong> v{$latestVersionEsc} (Aggiornamento disponibile! 🚀)</div>";
                         } else {
-                            $html .= "<div style='margin-bottom: 4px; color: #166534;'><strong>Ultima versione disponibile:</strong> v{$latestVersion} (La versione locale è aggiornata! ✨)</div>";
+                            $html .= "<div style='margin-bottom: 4px; color: #166534;'><strong>Ultima versione disponibile:</strong> v{$latestVersionEsc} (La versione locale è aggiornata! ✨)</div>";
                         }
                     }
+
                     $html .= "</div>";
-                    
+
                     $html .= "<div style='display: flex; gap: 8px; flex-wrap: wrap;'>";
-                    $html .= "<a class='button button-small' href='{$checkUrl}' data-loading-text='Verifica in corso...' style='background: #4b5563; color: white; border: none; padding: 6px 12px; border-radius: 4px; text-decoration: none; display: inline-block; font-size: 13px;'>Verifica aggiornamenti</a>";
+                    $html .= "<a class='button button-small' href='{$checkUrlEsc}' data-loading-text='Verifica in corso...' style='background: #4b5563; color: white; border: none; padding: 6px 12px; border-radius: 4px; text-decoration: none; display: inline-block; font-size: 13px;'>Verifica aggiornamenti</a>";
+
                     if ($latestVersion && $installedVersion !== $latestVersion) {
                         $updateUrl = $this->grav['base_url_relative'] . "/admin/plugins/modern-editor?action=download_tinymce&version={$latestVersion}";
-                        $html .= "<a class='button button-small' href='{$updateUrl}' data-loading-text='Aggiornamento in corso...' style='background: #2563eb; color: white; border: none; padding: 6px 12px; border-radius: 4px; text-decoration: none; display: inline-block; font-size: 13px; font-weight: bold;'>Aggiorna a v{$latestVersion}</a>";
+                        $updateUrlEsc = htmlspecialchars($updateUrl, ENT_QUOTES, 'UTF-8');
+                        $html .= "<a class='button button-small' href='{$updateUrlEsc}' data-loading-text='Aggiornamento in corso...' style='background: #2563eb; color: white; border: none; padding: 6px 12px; border-radius: 4px; text-decoration: none; display: inline-block; font-size: 13px; font-weight: bold;'>Aggiorna a v{$latestVersionEsc}</a>";
                     }
-                    $html .= "<a class='button button-small' href='{$reinstallUrl}' data-loading-text='Reinstallazione...' style='background: #9ca3af; color: #1f2937; border: 1px solid #d1d5db; padding: 6px 12px; border-radius: 4px; text-decoration: none; display: inline-block; font-size: 13px;'>Reinstalla versione predefinita (v7.4.0)</a>";
+
+                    $html .= "<a class='button button-small' href='{$reinstallUrlEsc}' data-loading-text='Reinstallazione...' style='background: #9ca3af; color: #1f2937; border: 1px solid #d1d5db; padding: 6px 12px; border-radius: 4px; text-decoration: none; display: inline-block; font-size: 13px;'>Reinstalla versione predefinita (v7.4.0)</a>";
                     $html .= "<span style='background: #e2e8f0; color: #94a3b8; border: none; padding: 6px 12px; border-radius: 4px; display: inline-block; font-size: 13px; cursor: not-allowed; pointer-events: none;' title='Seleziona Cloud CDN nelle impostazioni in alto per poter rimuovere i file offline.'>Rimuovi file offline (Disattivato)</span>";
                     $html .= "</div>";
                     $html .= "</div>";
@@ -891,24 +920,30 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
                     $html .= "<div class='notice alert modern-editor-local-banner' style='padding: 18px; margin-bottom: 12px; border-radius: 4px;'>";
                     $html .= "<p style='margin: 0 0 10px 0; font-size: 15px; font-weight: bold;'>🟢 Active Source: Local (Self-hosted)</p>";
                     $html .= "<p style='margin: 0 0 12px 0; font-size: 13.5px; line-height: 1.5;'>The editor is loading TinyMCE from your local offline server.</p>";
+
                     $html .= "<div style='margin-bottom: 14px; font-size: 13px; line-height: 1.5;'>";
                     $html .= "<div style='margin-bottom: 4px;'><strong>Installed Local Version:</strong> {$versionStr}</div>";
+
                     if ($latestVersion) {
                         if ($installedVersion !== $latestVersion) {
-                            $html .= "<div style='margin-bottom: 4px; color: #b91c1c;'><strong>Latest Version Available:</strong> v{$latestVersion} (Update available! 🚀)</div>";
+                            $html .= "<div style='margin-bottom: 4px; color: #b91c1c;'><strong>Latest Version Available:</strong> v{$latestVersionEsc} (Update available! 🚀)</div>";
                         } else {
-                            $html .= "<div style='margin-bottom: 4px; color: #166534;'><strong>Latest Version Available:</strong> v{$latestVersion} (Up to date! ✨)</div>";
+                            $html .= "<div style='margin-bottom: 4px; color: #166534;'><strong>Latest Version Available:</strong> v{$latestVersionEsc} (Up to date! ✨)</div>";
                         }
                     }
+
                     $html .= "</div>";
-                    
+
                     $html .= "<div style='display: flex; gap: 8px; flex-wrap: wrap;'>";
-                    $html .= "<a class='button button-small' href='{$checkUrl}' data-loading-text='Checking...' style='background: #4b5563; color: white; border: none; padding: 6px 12px; border-radius: 4px; text-decoration: none; display: inline-block; font-size: 13px;'>Check for Updates</a>";
+                    $html .= "<a class='button button-small' href='{$checkUrlEsc}' data-loading-text='Checking...' style='background: #4b5563; color: white; border: none; padding: 6px 12px; border-radius: 4px; text-decoration: none; display: inline-block; font-size: 13px;'>Check for Updates</a>";
+
                     if ($latestVersion && $installedVersion !== $latestVersion) {
                         $updateUrl = $this->grav['base_url_relative'] . "/admin/plugins/modern-editor?action=download_tinymce&version={$latestVersion}";
-                        $html .= "<a class='button button-small' href='{$updateUrl}' data-loading-text='Updating...' style='background: #2563eb; color: white; border: none; padding: 6px 12px; border-radius: 4px; text-decoration: none; display: inline-block; font-size: 13px; font-weight: bold;'>Update to v{$latestVersion}</a>";
+                        $updateUrlEsc = htmlspecialchars($updateUrl, ENT_QUOTES, 'UTF-8');
+                        $html .= "<a class='button button-small' href='{$updateUrlEsc}' data-loading-text='Updating...' style='background: #2563eb; color: white; border: none; padding: 6px 12px; border-radius: 4px; text-decoration: none; display: inline-block; font-size: 13px; font-weight: bold;'>Update to v{$latestVersionEsc}</a>";
                     }
-                    $html .= "<a class='button button-small' href='{$reinstallUrl}' data-loading-text='Reinstalling...' style='background: #9ca3af; color: #1f2937; border: 1px solid #d1d5db; padding: 6px 12px; border-radius: 4px; text-decoration: none; display: inline-block; font-size: 13px;'>Reinstall Default (v7.4.0)</a>";
+
+                    $html .= "<a class='button button-small' href='{$reinstallUrlEsc}' data-loading-text='Reinstalling...' style='background: #9ca3af; color: #1f2937; border: 1px solid #d1d5db; padding: 6px 12px; border-radius: 4px; text-decoration: none; display: inline-block; font-size: 13px;'>Reinstall Default (v7.4.0)</a>";
                     $html .= "<span style='background: #e2e8f0; color: #94a3b8; border: none; padding: 6px 12px; border-radius: 4px; display: inline-block; font-size: 13px; cursor: not-allowed; pointer-events: none;' title='Select Cloud CDN in the settings above to be able to remove offline files.'>Remove offline files (Disabled)</span>";
                     $html .= "</div>";
                     $html .= "</div>";
@@ -918,24 +953,28 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
                     $html .= "<div class='notice alert modern-editor-error-banner' style='padding: 18px; margin-bottom: 12px; border-radius: 4px;'>";
                     $html .= "<p style='margin: 0 0 10px 0; font-size: 15px; font-weight: bold;'>🔴 Sorgente attiva: Local (Self-hosted) - Richiede scaricamento</p>";
                     $html .= "<p style='margin: 0 0 14px 0; font-size: 13.5px; line-height: 1.5;'>L'editor è configurato per l'hosting locale, ma TinyMCE non è ancora presente sul server. Scarica la versione locale predefinita qui sotto per attivare l'editor.</p>";
+
                     if ($hasError) {
                         $html .= "<p class='modern-editor-inline-error' style='margin: 0 0 14px 0; font-size: 12.5px; padding: 8px; border-radius: 4px; font-family: monospace;'><strong>Ultimo Errore:</strong> " . htmlspecialchars($errorMessage, ENT_QUOTES, 'UTF-8') . "</p>";
                     }
+
                     $html .= "<div style='display: flex; gap: 8px; flex-wrap: wrap;'>";
-                    $html .= "<a class='button button-small' href='{$reinstallUrl}' data-loading-text='Scaricamento in corso...' style='background: #dc2626; color: white; border: none; padding: 6px 12px; border-radius: 4px; text-decoration: none; display: inline-block; font-size: 13px; font-weight: bold;'>Scarica v7.4.0 (Predefinita)</a>";
-                    $html .= "<a class='button button-small' href='{$checkUrl}' data-loading-text='Verifica in corso...' style='background: #4b5563; color: white; border: none; padding: 6px 12px; border-radius: 4px; text-decoration: none; display: inline-block; font-size: 13px;'>Controlla versione disponibile</a>";
+                    $html .= "<a class='button button-small' href='{$reinstallUrlEsc}' data-loading-text='Scaricamento in corso...' style='background: #dc2626; color: white; border: none; padding: 6px 12px; border-radius: 4px; text-decoration: none; display: inline-block; font-size: 13px; font-weight: bold;'>Scarica v7.4.0 (Predefinita)</a>";
+                    $html .= "<a class='button button-small' href='{$checkUrlEsc}' data-loading-text='Verifica in corso...' style='background: #4b5563; color: white; border: none; padding: 6px 12px; border-radius: 4px; text-decoration: none; display: inline-block; font-size: 13px;'>Controlla versione disponibile</a>";
                     $html .= "</div>";
                     $html .= "</div>";
                 } else {
                     $html .= "<div class='notice alert modern-editor-error-banner' style='padding: 18px; margin-bottom: 12px; border-radius: 4px;'>";
                     $html .= "<p style='margin: 0 0 10px 0; font-size: 15px; font-weight: bold;'>🔴 Active Source: Local (Self-hosted) - Download Required</p>";
                     $html .= "<p style='margin: 0 0 14px 0; font-size: 13.5px; line-height: 1.5;'>The editor is configured to load locally, but TinyMCE assets are not yet present on your server. Download the default local version below to activate the editor.</p>";
+
                     if ($hasError) {
                         $html .= "<p class='modern-editor-inline-error' style='margin: 0 0 14px 0; font-size: 12.5px; padding: 8px; border-radius: 4px; font-family: monospace;'><strong>Last Error:</strong> " . htmlspecialchars($errorMessage, ENT_QUOTES, 'UTF-8') . "</p>";
                     }
+
                     $html .= "<div style='display: flex; gap: 8px; flex-wrap: wrap;'>";
-                    $html .= "<a class='button button-small' href='{$reinstallUrl}' data-loading-text='Downloading...' style='background: #dc2626; color: white; border: none; padding: 6px 12px; border-radius: 4px; text-decoration: none; display: inline-block; font-size: 13px; font-weight: bold;'>Download v7.4.0 (Default)</a>";
-                    $html .= "<a class='button button-small' href='{$checkUrl}' data-loading-text='Checking...' style='background: #4b5563; color: white; border: none; padding: 6px 12px; border-radius: 4px; text-decoration: none; display: inline-block; font-size: 13px;'>Check Available Version</a>";
+                    $html .= "<a class='button button-small' href='{$reinstallUrlEsc}' data-loading-text='Downloading...' style='background: #dc2626; color: white; border: none; padding: 6px 12px; border-radius: 4px; text-decoration: none; display: inline-block; font-size: 13px; font-weight: bold;'>Download v7.4.0 (Default)</a>";
+                    $html .= "<a class='button button-small' href='{$checkUrlEsc}' data-loading-text='Checking...' style='background: #4b5563; color: white; border: none; padding: 6px 12px; border-radius: 4px; text-decoration: none; display: inline-block; font-size: 13px;'>Check Available Version</a>";
                     $html .= "</div>";
                     $html .= "</div>";
                 }
@@ -945,33 +984,35 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
         $html .= "</div>";
 
         // Append the beautiful inline AJAX JavaScript
+        $langJs = $lang === 'it' ? 'true' : 'false';
         $html .= "
 <script>
 (function() {
     function initModernEditorStatusCard() {
         const card = document.getElementById('modern-editor-status-card');
         if (!card) return;
-        
+
         card.querySelectorAll('a.button-small').forEach(btn => {
             // Prevent multiple binding
             if (btn.getAttribute('data-ajax-bound') === 'true') return;
             btn.setAttribute('data-ajax-bound', 'true');
-            
+
             btn.addEventListener('click', function(e) {
                 e.preventDefault();
+
                 const url = this.getAttribute('href');
                 if (!url) return;
-                
+
                 const originalText = this.innerHTML;
                 const loadingText = this.getAttribute('data-loading-text') || 'Attendi...';
-                
+
                 this.innerHTML = '<span style=\"display:inline-block;animation:modern_editor_spin 1s linear infinite;margin-right:6px;\">⌛</span> ' + loadingText;
                 this.style.pointerEvents = 'none';
                 this.style.opacity = '0.75';
-                
+
                 // Add ajax=1 query parameter
                 const ajaxUrl = url + (url.indexOf('?') !== -1 ? '&ajax=1' : '?ajax=1');
-                
+
                 fetch(ajaxUrl)
                     .then(response => {
                         if (!response.ok) throw new Error('HTTP error ' + response.status);
@@ -981,6 +1022,7 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
                         if (data.message) {
                             alert(data.message);
                         }
+
                         if (data.html) {
                             // Find the container parent and replace card HTML
                             const parent = card.parentNode;
@@ -988,6 +1030,7 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
                                 const parser = new DOMParser();
                                 const doc = parser.parseFromString(data.html, 'text/html');
                                 const newCard = doc.getElementById('modern-editor-status-card');
+
                                 if (newCard) {
                                     card.innerHTML = newCard.innerHTML;
                                     // Remove bound flags so we can re-initialize properly
@@ -1005,7 +1048,7 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
                     })
                     .catch(err => {
                         console.error('Modern Editor status action failed:', err);
-                        alert(\"" . ($lang === 'it' ? "Errore durante l'esecuzione dell'operazione: " : "Error executing operation: ") . "\" + err.message);
+                        alert('" . ($lang === 'it' ? "Errore durante l'esecuzione dell'operazione: " : "Error executing operation: ") . "' + err.message);
                         this.innerHTML = originalText;
                         this.style.pointerEvents = 'auto';
                         this.style.opacity = '1';
@@ -1019,6 +1062,7 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
         sourceInputs.forEach(input => {
             if (input.getAttribute('data-source-bound') === 'true') return;
             input.setAttribute('data-source-bound', 'true');
+
             input.addEventListener('change', function() {
                 let notice = card.querySelector('.modern-editor-save-notice');
                 if (!notice) {
@@ -1033,17 +1077,19 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
                     notice.style.fontSize = '13.5px';
                     notice.style.lineHeight = '1.5';
                     notice.style.fontWeight = '500';
+
                     card.insertBefore(notice, card.firstChild);
-                    
+
                     const style = document.createElement('style');
                     style.innerHTML = '@media (prefers-color-scheme: dark) { #modern-editor-status-card .modern-editor-save-notice { background-color: #1e3a8a !important; color: #eff6ff !important; } } html.dark #modern-editor-status-card .modern-editor-save-notice, html.dark-mode #modern-editor-status-card .modern-editor-save-notice, html.theme-dark #modern-editor-status-card .modern-editor-save-notice, body.dark #modern-editor-status-card .modern-editor-save-notice, body.dark-mode #modern-editor-status-card .modern-editor-save-notice, body.theme-dark #modern-editor-status-card .modern-editor-save-notice { background-color: #1e3a8a !important; color: #eff6ff !important; }';
                     document.head.appendChild(style);
                 }
-                const isIt = document.documentElement.lang === 'it' || window.navigator.language.startsWith('it') || navigator.language.startsWith('it') || " . ($lang === 'it' ? 'true' : 'false') . ";
-                notice.innerHTML = isIt 
+
+                const isIt = document.documentElement.lang === 'it' || window.navigator.language.startsWith('it') || navigator.language.startsWith('it') || " . $langJs . ";
+                notice.innerHTML = isIt
                     ? '🔄 <strong>Salvataggio in corso...</strong> La pagina si ricaricherà automaticamente per aggiornare lo stato e i banner.'
                     : '🔄 <strong>Saving settings...</strong> The page will reload automatically to update status and banners.';
-                
+
                 setTimeout(() => {
                     const saveBtn = document.querySelector('#and-save, .and-save-button, button[type=\"submit\"], .button.save, [data-key=\"s\"]');
                     if (saveBtn) {
@@ -1055,7 +1101,7 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
             });
         });
     }
-    
+
     // Inject keyframes style once if not already present
     if (!document.getElementById('modern-editor-status-styles')) {
         const style = document.createElement('style');
@@ -1063,7 +1109,7 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
         style.innerHTML = '@keyframes modern_editor_spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }';
         document.head.appendChild(style);
     }
-    
+
     // Run initialization
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', initModernEditorStatusCard);
@@ -1077,7 +1123,7 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
         return $html;
     }
 
-    /**
+    /*
      * Downloads and extracts TinyMCE of the specified version.
      */
     private function downloadAndExtractTinyMCE(string $version): bool
@@ -1103,7 +1149,7 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
 
         $url = "https://download.tiny.cloud/tinymce/community/tinymce_{$version}.zip";
         $tempZip = tempnam(sys_get_temp_dir(), 'tinymce_zip_');
-        
+
         $data = null;
         $httpCode = 0;
         $downloadError = '';
@@ -1113,29 +1159,37 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
             curl_setopt($ch, CURLOPT_URL, $url);
             curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
             curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
-            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false); // Bypass SSL verification for development environments
-            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+            
+            // ✅ FIX CRITICO: Abilita verifica SSL
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
+            
             curl_setopt($ch, CURLOPT_TIMEOUT, 60);
+
             $data = curl_exec($ch);
             $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+
             if ($data === false) {
                 $downloadError = 'Curl error: ' . curl_error($ch);
             }
+
             curl_close($ch);
         }
 
         if (!$data) {
             // Fallback to file_get_contents if curl fails or is disabled
+            // ✅ FIX CRITICO: Abilita verifica SSL
             $context = stream_context_create([
                 'ssl' => [
-                    'verify_peer' => false,
-                    'verify_peer_name' => false,
+                    'verify_peer' => true,
+                    'verify_peer_name' => true,
                 ],
                 'http' => [
                     'timeout' => 60,
                     'follow_location' => 1
                 ]
             ]);
+
             $data = @file_get_contents($url, false, $context);
             if ($data) {
                 $httpCode = 200;
@@ -1203,6 +1257,7 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
         if (is_dir($targetDir)) {
             $this->recursiveRmdir($targetDir);
         }
+
         @mkdir($targetDir, 0775, true);
 
         // Copy extracted files to target directory
@@ -1217,22 +1272,24 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
         return true;
     }
 
-    /**
+    /*
      * Recursively find the directory containing 'tinymce.min.js'
      */
     private function findTinyMCEJsFolder(string $dir): ?string
     {
         $it = new \RecursiveDirectoryIterator($dir);
         $it = new \RecursiveIteratorIterator($it);
+
         foreach ($it as $file) {
             if ($file->isFile() && $file->getFilename() === 'tinymce.min.js') {
                 return dirname($file->getRealPath());
             }
         }
+
         return null;
     }
 
-    /**
+    /*
      * Recursively deletes a directory
      */
     private function recursiveRmdir(string $dir): void
@@ -1240,6 +1297,7 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
         if (!is_dir($dir)) {
             return;
         }
+
         $files = array_diff(scandir($dir), ['.', '..']);
         foreach ($files as $file) {
             $path = $dir . '/' . $file;
@@ -1249,16 +1307,18 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
                 @unlink($path);
             }
         }
+
         @rmdir($dir);
     }
 
-    /**
+    /*
      * Recursively copies a directory
      */
     private function recursiveCopy(string $src, string $dst): void
     {
         $dir = opendir($src);
         @mkdir($dst, 0775, true);
+
         while (($file = readdir($dir)) !== false) {
             if (($file !== '.') && ($file !== '..')) {
                 if (is_dir($src . '/' . $file)) {
@@ -1268,10 +1328,11 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
                 }
             }
         }
+
         closedir($dir);
     }
 
-    /**
+    /*
      * Injects the active TinyMCE URL globally in the admin panel so the custom element
      * can reliably load the selected script source regardless of cached blueprints.
      */
@@ -1282,16 +1343,16 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
         }
 
         $editorUrl = $this->getEditorScriptUrl();
-
         $this->grav['assets']->addInlineJs("window.__MODERN_EDITOR_URL__ = " . json_encode($editorUrl) . ";");
     }
 
-    /**
+    /*
      * Helper to get the correct editor URL based on configured source.
      */
     public function getEditorScriptUrl(): string
     {
         $editorSource = $this->config->get('plugins.modern-editor.editor_source', 'cdn');
+
         if ($editorSource === 'local') {
             $pluginPath = $this->grav['locator']->findResource('plugin://' . $this->name, false);
             $baseUrl = rtrim($this->grav['base_url_relative'], '/');
@@ -1302,7 +1363,7 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
         return 'https://cdn.jsdelivr.net/npm/tinymce@7/tinymce.min.js';
     }
 
-    /**
+    /*
      * Fetches the latest stable version of TinyMCE from the npm registry.
      */
     private function fetchLatestTinyMCEVersion(): ?string
@@ -1316,6 +1377,7 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
             curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
             curl_setopt($ch, CURLOPT_TIMEOUT, 10);
             curl_setopt($ch, CURLOPT_USERAGENT, 'Grav CMS Modern Editor Plugin');
+
             $response = curl_exec($ch);
             $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
             curl_close($ch);
@@ -1337,8 +1399,10 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
                     'timeout' => 10
                 ]
             ];
+
             $context = stream_context_create($opts);
             $response = @file_get_contents($url, false, $context);
+
             if ($response) {
                 $data = json_decode($response, true);
                 if (isset($data['version'])) {
@@ -1352,4 +1416,3 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
         return null;
     }
 }
-
