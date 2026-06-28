@@ -1,6 +1,9 @@
 # Changelog
 
-## v1.1.6
+## v1.1.8
+- Security fix
+
+- ## v1.1.6
 - Security fix
 
 ## v1.1.6
