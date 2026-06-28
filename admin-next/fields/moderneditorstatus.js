@@ -164,9 +164,17 @@ class ModernEditorStatusField extends HTMLElement {
         if (!url) return;
 
         const originalText = btn.innerHTML;
+        const originalTextContent = btn.textContent;
         const loadingText = btn.getAttribute('data-loading-text') || 'Attendi...';
 
-        btn.innerHTML = '<span style="display:inline-block;animation:modern_editor_spin 1s linear infinite;margin-right:6px;">⌛</span> ' + loadingText;
+        btn.textContent = '';
+        const spinner = document.createElement('span');
+        spinner.style.display = 'inline-block';
+        spinner.style.animation = 'modern_editor_spin 1s linear infinite';
+        spinner.style.marginRight = '6px';
+        spinner.textContent = '⌛';
+        btn.appendChild(spinner);
+        btn.appendChild(document.createTextNode(' ' + loadingText));
         btn.style.pointerEvents = 'none';
         btn.style.opacity = '0.75';
 
@@ -196,7 +204,11 @@ class ModernEditorStatusField extends HTMLElement {
             console.error('Modern Editor status action failed:', err);
             const isIt = document.documentElement.lang === 'it' || window.navigator.language.startsWith('it');
             alert((isIt ? "Errore durante l'esecuzione dell'operazione: " : "Error executing operation: ") + err.message);
-            btn.innerHTML = originalText;
+            if (originalText) {
+              btn.innerHTML = originalText;
+            } else {
+              btn.textContent = originalTextContent || '';
+            }
             btn.style.pointerEvents = 'auto';
             btn.style.opacity = '1';
           });
