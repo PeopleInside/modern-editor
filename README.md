@@ -120,4 +120,4 @@ If your Grav installation runs in a private network, or if you prefer not to rel
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the  GNU General Public License v2.0 or later (GPLv2+) - see the [LICENSE](LICENSE) file for details.
