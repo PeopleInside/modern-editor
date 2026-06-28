@@ -16,13 +16,24 @@
 
 const TAG = window.__GRAV_FIELD_TAG;
 const TINYMCE_CDN = 'https://cdn.jsdelivr.net/npm/tinymce@7/tinymce.min.js';
+const TINYMCE_CDN_HOSTS = ['cdn.jsdelivr.net', 'tiny.cloud', 'cdnjs.cloudflare.com'];
+
+function isTrustedTinyMceCdnUrl(url) {
+  try {
+    const parsed = new URL(url, window.location.href);
+    const host = parsed.hostname.toLowerCase();
+    return TINYMCE_CDN_HOSTS.includes(host);
+  } catch (e) {
+    return false;
+  }
+}
 
 // Load TinyMCE script once, even if multiple instances of the field are present.
 function loadTinyMCE(url) {
-  const isUrlCdn = url.includes('cdn.jsdelivr.net') || url.includes('tiny.cloud') || url.includes('cdnjs');
+  const isUrlCdn = isTrustedTinyMceCdnUrl(url);
 
   if (window.tinymce) {
-    const isCurrentCdn = !window.tinymce.baseURL || window.tinymce.baseURL.includes('cdn.jsdelivr.net') || window.tinymce.baseURL.includes('tiny.cloud') || window.tinymce.baseURL.includes('cdnjs');
+    const isCurrentCdn = !window.tinymce.baseURL || isTrustedTinyMceCdnUrl(window.tinymce.baseURL);
     if (isUrlCdn !== isCurrentCdn) {
       const scripts = document.querySelectorAll('script[src*="tinymce.min.js"], script[src*="tinymce.js"]');
       scripts.forEach(s => s.remove());
@@ -379,7 +390,7 @@ class TinyMCEField extends HTMLElement {
 
     // If loading from local path, specify base_url so TinyMCE can load its assets (plugins, skins, themes) correctly
     const editorUrl = getEditorUrl(this._field);
-    if (editorUrl && !editorUrl.includes('cdn.jsdelivr.net')) {
+    if (editorUrl && !isTrustedTinyMceCdnUrl(editorUrl)) {
       const urlParts = editorUrl.split('/');
       urlParts.pop(); // remove 'tinymce.min.js'
       initOpts.base_url = urlParts.join('/');
