@@ -159,7 +159,10 @@ function markdownToHtml(markdown) {
 
 function sanitizeUrl(url) {
   const trimmed = (url || '').trim();
-  if (trimmed.toLowerCase().startsWith('javascript:')) {
+  if (/^(javascript|data|vbscript|file):/i.test(trimmed)) {
+    return 'about:blank';
+  }
+  if (/^[a-z0-9+.-]+:/i.test(trimmed) && !/^(https?|mailto|tel):/i.test(trimmed)) {
     return 'about:blank';
   }
   return trimmed;
@@ -180,10 +183,10 @@ function parseInlineMarkdown(str) {
     return `<img src="${escapeHtml(sanitizeUrl(url))}" alt="${escapeHtml(alt)}">`;
   });
   html = html.replace(/\[(.*?)\]\((.*?)\)/g, (match, text, url) => {
-    return `<a href="${escapeHtml(sanitizeUrl(url))}">${text}</a>`;
+    return `<a href="${escapeHtml(sanitizeUrl(url))}">${escapeHtml(text)}</a>`;
   });
   html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-  html = html.replace(/__/g, '<strong>$1</strong>');
+  html = html.replace(/__(.*?)__/g, '<strong>$1</strong>');
   html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
   html = html.replace(/_(.*?)_/g, '<em>$1</em>');
   html = html.replace(/`(.*?)`/g, '<code>$1</code>');
