@@ -55,7 +55,8 @@ class ModernEditorPlugin extends Plugin
     private function getAdminPath(): string
     {
         $baseUrl = rtrim($this->grav['base_url_relative'], '/');
-        return $baseUrl . '/' . ltrim($this->getAdminRoute(), '/');
+        $adminRoute = '/' . ltrim($this->getAdminRoute(), '/');
+        return $baseUrl . $adminRoute;
     }
 
     private function getAdminBase(): string
