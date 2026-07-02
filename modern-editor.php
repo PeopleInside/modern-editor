@@ -52,6 +52,11 @@ class ModernEditorPlugin extends Plugin
         return $this->cachedAdminRoute;
     }
 
+    private function getAdminBase(): string
+    {
+        return rtrim($this->grav['base_url_relative'], '/') . $this->getAdminRoute() . '/plugins/modern-editor';
+    }
+
     public static function getSubscribedEvents(): array
     {
         return [
@@ -82,8 +87,7 @@ class ModernEditorPlugin extends Plugin
             return;
         }
 
-        $adminRoute = $this->getAdminRoute();
-        $adminBase = rtrim($this->grav['base_url_relative'], '/') . $adminRoute . '/plugins/modern-editor';
+        $adminBase = $this->getAdminBase();
 
         $uri = $this->grav['uri'];
         $action = $uri->query('action');
@@ -709,8 +713,7 @@ YAML;
             $latestVersion = $this->grav['session']->modern_editor_latest_version ?? null;
         }
 
-        $adminRoute = $this->getAdminRoute();
-        $adminBase = rtrim($this->grav['base_url_relative'], '/') . $adminRoute . '/plugins/modern-editor';
+        $adminBase = $this->getAdminBase();
 
         $checkUrl = $adminBase . '?action=check_updates';
         $reinstallUrl = $adminBase . '?action=download_tinymce&version=7.4.0';
