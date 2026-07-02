@@ -41,8 +41,14 @@ function loadScript(url, globalName) {
   window[loadingKey] = new Promise((resolve, reject) => {
     const script = document.createElement('script');
     script.src = url;
-    script.onload = () => resolve(window[globalName]);
-    script.onerror = () => reject(new Error('Failed to load ' + globalName));
+    script.onload = () => {
+      delete window[loadingKey];
+      resolve(window[globalName]);
+    };
+    script.onerror = () => {
+      delete window[loadingKey];
+      reject(new Error('Failed to load ' + globalName));
+    };
     document.head.appendChild(script);
   });
   return window[loadingKey];
@@ -68,6 +74,7 @@ function convertMarkdownToHtml(markdown) {
       return window.marked(markdown);
     }
   }
+  console.warn('Modern Editor: window.marked is not loaded. Displaying raw content.');
   return markdown;
 }
 
@@ -81,6 +88,7 @@ function convertHtmlToMarkdown(html) {
     });
     return turndownService.turndown(html);
   }
+  console.warn('Modern Editor: window.TurndownService is not loaded. Saving content as HTML.');
   return html;
 }
 
@@ -232,6 +240,7 @@ class TinyMCEField extends HTMLElement {
   _applying = false; // Avoid loop while applying an external value
   _ready = false;
   _bootstrapped = false;
+  _lastHtml = '';
 
   set field(f) {
     this._field = f || {};
@@ -249,11 +258,15 @@ class TinyMCEField extends HTMLElement {
     const newVal = v ?? '';
     this._value = newVal;
     if (this._editor && this._ready) {
-      const currentMarkdown = convertHtmlToMarkdown(this._editor.getContent());
-      if (currentMarkdown !== newVal) {
-        this._applying = true;
-        this._editor.setContent(convertMarkdownToHtml(newVal));
-        this._applying = false;
+      const newHtml = convertMarkdownToHtml(newVal);
+      if (this._lastHtml !== newHtml) {
+        const currentHtml = this._editor.getContent();
+        if (currentHtml !== newHtml) {
+          this._applying = true;
+          this._editor.setContent(newHtml);
+          this._lastHtml = newHtml;
+          this._applying = false;
+        }
       }
     }
   }
@@ -438,11 +451,15 @@ class TinyMCEField extends HTMLElement {
         editor.on('init', () => {
           this._editor = editor;
           this._ready = true;
-          editor.setContent(convertMarkdownToHtml(this._value || ''));
+          const html = convertMarkdownToHtml(this._value || '');
+          this._lastHtml = html;
+          editor.setContent(html);
         });
         editor.on('change keyup undo redo', () => {
           if (this._applying) return;
           const html = editor.getContent();
+          if (this._lastHtml === html) return;
+          this._lastHtml = html;
           const markdown = convertHtmlToMarkdown(html);
           this._value = markdown;
           this.dispatchEvent(new CustomEvent('change', {
@@ -484,6 +501,7 @@ class TinyMCEField extends HTMLElement {
       ensureBaseUrl(editorUrl);
       this._initEditor(isDarkMode);
       this._value = markdown;
+      this._lastHtml = ''; // Reset cached HTML on re-initialization
     });
   }
 }
