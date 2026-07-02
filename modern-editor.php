@@ -87,8 +87,6 @@ class ModernEditorPlugin extends Plugin
             return;
         }
 
-        $adminBase = $this->getAdminBase();
-
         $uri = $this->grav['uri'];
         $action = $uri->query('action');
 
@@ -108,6 +106,8 @@ class ModernEditorPlugin extends Plugin
             }
             return;
         }
+
+        $adminBase = $this->getAdminBase();
 
         $isAjax = $uri->query('ajax') === '1';
         $lang = 'en';
