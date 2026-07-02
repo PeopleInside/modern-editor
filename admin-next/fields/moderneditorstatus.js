@@ -16,6 +16,9 @@
 const TAG = window.__GRAV_FIELD_TAG;
 
 function getAdminPath() {
+  if (window.__MODERN_EDITOR_ADMIN_PATH__) {
+    return window.__MODERN_EDITOR_ADMIN_PATH__;
+  }
   if (window.GravAdmin?.config?.base_url_relative) {
     return window.GravAdmin.config.base_url_relative;
   }
