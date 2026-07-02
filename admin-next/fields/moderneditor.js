@@ -97,7 +97,7 @@ function markdownToHtml(markdown) {
     if (headingMatch) {
       closeList();
       const level = headingMatch[1].length;
-      const content = parseInlineMarkdown(escapeHtml(headingMatch[2]));
+      const content = parseInlineMarkdown(headingMatch[2]);
       htmlBlocks.push(`<h${level}>${content}</h${level}>`);
       continue;
     }
@@ -128,11 +128,11 @@ function markdownToHtml(markdown) {
         let itemTrimmed = line.trim();
         const itemMatch = isOl ? itemTrimmed.match(/^\d+\.\s+(.*)$/) : itemTrimmed.match(/^[\*\-\+]\s+(.*)$/);
         if (itemMatch) {
-          htmlBlocks.push(`<li>${parseInlineMarkdown(escapeHtml(itemMatch[1]))}</li>`);
+          htmlBlocks.push(`<li>${parseInlineMarkdown(itemMatch[1])}</li>`);
         } else if (itemTrimmed) {
           const lastIdx = htmlBlocks.length - 1;
           if (lastIdx >= 0 && htmlBlocks[lastIdx].endsWith('</li>')) {
-            htmlBlocks[lastIdx] = htmlBlocks[lastIdx].slice(0, -5) + ' ' + parseInlineMarkdown(escapeHtml(itemTrimmed)) + '</li>';
+            htmlBlocks[lastIdx] = htmlBlocks[lastIdx].slice(0, -5) + ' ' + parseInlineMarkdown(itemTrimmed) + '</li>';
           }
         }
       }
@@ -149,7 +149,7 @@ function markdownToHtml(markdown) {
     }
     
     closeList();
-    const content = trimmed.split('\n').map(line => parseInlineMarkdown(escapeHtml(line.trim()))).join('<br>');
+    const content = trimmed.split('\n').map(line => parseInlineMarkdown(line.trim())).join('<br>');
     htmlBlocks.push(`<p>${content}</p>`);
   }
   
@@ -160,13 +160,23 @@ function markdownToHtml(markdown) {
 function sanitizeUrl(url) {
   let trimmed = (url || '').trim();
   
+  // Decode HTML entities
+  try {
+    const txt = document.createElement('textarea');
+    txt.innerHTML = trimmed;
+    trimmed = txt.value;
+  } catch (e) {
+    // ignore decode errors on malformed entities
+  }
+
+  // Try to decode percent URL-encoded characters
   try {
     trimmed = decodeURIComponent(trimmed);
   } catch (e) {
-    // ignore decode errors
+    // ignore decode errors on malformed percent-encodings
   }
   
-  // Remove spaces, tabs, newlines, control characters and invisible characters
+  // Remove control characters (ASCII 0-32) and other invisible space characters
   trimmed = trimmed.replace(/[\x00-\x20\u200B\u2028\u2029]/g, '');
   
   if (/^(javascript|data|vbscript|file):/i.test(trimmed)) {
