@@ -247,6 +247,8 @@ class TinyMCEField extends HTMLElement {
 
   set value(v) {
     const newVal = v ?? '';
+    // Both this._value and newVal are in Markdown format at this point.
+    // Early return if they are identical to avoid redundant processing.
     if (this._value === newVal) return;
     this._value = newVal;
     if (this._editor && this._ready) {
