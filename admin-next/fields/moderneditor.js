@@ -164,38 +164,18 @@ function getAdminPath() {
   }
   
   const pathname = window.location.pathname;
+  const segments = pathname.split('/');
   
-  // Dynamic parsing of the first segment after Grav site base relative path
-  let baseUrlRelative = '';
-  if (window.GravAdmin?.config?.base_url_relative) {
-    baseUrlRelative = window.GravAdmin.config.base_url_relative;
-  } else if (window.Grav?.config?.base_url_relative) {
-    baseUrlRelative = window.Grav.config.base_url_relative;
-  }
-  
-  if (baseUrlRelative.endsWith('/')) {
-    baseUrlRelative = baseUrlRelative.slice(0, -1);
-  }
-  
-  if (pathname.startsWith(baseUrlRelative)) {
-    const relativePath = pathname.substring(baseUrlRelative.length);
-    const segments = relativePath.split('/').filter(Boolean);
-    if (segments.length > 0) {
-      return baseUrlRelative + '/' + segments[0];
-    }
-  }
-  
+  // Look for standard admin section keywords as complete path segments
   const adminKeywords = [
-    '/plugins', '/pages', '/dashboard', '/themes', '/configuration', 
-    '/config', '/tools', '/navigation', '/media', '/users'
+    'plugins', 'pages', 'dashboard', 'themes', 'configuration', 
+    'config', 'tools', 'navigation', 'media', 'users'
   ];
-  for (const kw of adminKeywords) {
-    const keywordIndex = pathname.indexOf(kw);
-    if (keywordIndex > 0) {
-      const nextChar = pathname.charAt(keywordIndex + kw.length);
-      if (nextChar === '' || nextChar === '/') {
-        return pathname.substring(0, keywordIndex);
-      }
+  
+  for (let i = 0; i < segments.length; i++) {
+    if (adminKeywords.includes(segments[i])) {
+      // Reconstruct the path using all segments preceding the admin keyword
+      return segments.slice(0, i).join('/') || '/';
     }
   }
   
