@@ -167,7 +167,7 @@ function sanitizeUrl(url) {
   }
   
   // Remove spaces, tabs, newlines, control characters and invisible characters
-  trimmed = trimmed.replace(/[\x00-\x20\s\t\n\r\u200B\u2028\u2029]/g, '');
+  trimmed = trimmed.replace(/[\x00-\x20\u200B\u2028\u2029]/g, '');
   
   if (/^(javascript|data|vbscript|file):/i.test(trimmed)) {
     return 'about:blank';
@@ -175,7 +175,7 @@ function sanitizeUrl(url) {
   if (/^[a-z0-9+.-]+:/i.test(trimmed) && !/^(https?|mailto|tel):/i.test(trimmed)) {
     return 'about:blank';
   }
-  return (url || '').trim().replace(/"/g, '%22').replace(/'/g, '%27');
+  return trimmed.replace(/"/g, '%22').replace(/'/g, '%27');
 }
 
 function escapeHtml(str) {
@@ -188,7 +188,7 @@ function escapeHtml(str) {
 }
 
 function parseInlineMarkdown(str) {
-  let html = str;
+  let html = escapeHtml(str);
   html = html.replace(/!\[(.*?)\]\((.*?)\)/g, (match, alt, url) => {
     return `<img src="${sanitizeUrl(url)}" alt="${alt}">`;
   });
