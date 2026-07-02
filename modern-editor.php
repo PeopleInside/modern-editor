@@ -36,13 +36,20 @@ class ModernEditorPlugin extends Plugin
     /** @var string Path (stream) where the override blueprints are generated */
     protected $generatedPath = 'cache://modern-editor/blueprints/pages';
 
+    /** @var string|null Cached admin route */
+    private $cachedAdminRoute = null;
+
     private function getAdminRoute(): string
     {
+        if ($this->cachedAdminRoute !== null) {
+            return $this->cachedAdminRoute;
+        }
         $adminRoute = trim((string) $this->config->get('plugins.admin.route', '/admin'));
         if ($adminRoute === '') {
             $adminRoute = '/admin';
         }
-        return '/' . ltrim($adminRoute, '/');
+        $this->cachedAdminRoute = '/' . ltrim($adminRoute, '/');
+        return $this->cachedAdminRoute;
     }
 
     public static function getSubscribedEvents(): array
