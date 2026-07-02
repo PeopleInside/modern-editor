@@ -164,10 +164,30 @@ function getAdminPath() {
   }
   
   const pathname = window.location.pathname;
+  const segments = pathname.split('/');
+  
+  // Look for standard admin section keywords as complete path segments.
+  // Note: These keywords are duplicated in moderneditorstatus.js because both files
+  // are loaded independently as separate Web Components by Grav Admin.
+  const adminKeywords = [
+    'plugins', 'pages', 'dashboard', 'themes', 'configuration', 
+    'config', 'tools', 'navigation', 'media', 'users'
+  ];
+  
+  // Since pathname always starts with '/', segments[0] is always empty.
+  // We start the search from index 1 to identify the admin route.
+  for (let i = 1; i < segments.length; i++) {
+    if (adminKeywords.includes(segments[i])) {
+      // Reconstruct the path using all segments preceding the admin keyword
+      return segments.slice(0, i).join('/');
+    }
+  }
+  
   const adminIdx = pathname.indexOf('/admin');
   if (adminIdx !== -1) {
     return pathname.substring(0, adminIdx + 6);
   }
+  
   return '/admin';
 }
 
