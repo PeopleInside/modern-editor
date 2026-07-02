@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.1.9
+- Fixed a bug where the plugin status card or the config/CDN fallback fails with a 404 error when Grav's admin path is customized from its default ('/admin') to a custom route.
+- Robustified custom admin path detection inside `getAdminPath()` in both field elements to dynamically find and match standard administrative segments (such as `/plugins`, `/pages`, `/dashboard`, etc.) in the URL pathname.
+- Resolved an issue where local self-hosted mode loaded TinyMCE from the CDN fallback during page editing because config requests could not reach the customized admin endpoint.
+
 ## v1.1.8
 - Security fix
 

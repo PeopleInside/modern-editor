@@ -33,10 +33,26 @@ function getAdminPath() {
   }
   
   const pathname = window.location.pathname;
+  const adminKeywords = [
+    '/plugins', '/pages', '/dashboard', '/themes', '/configuration', 
+    '/config', '/tools', '/navigation', '/media', '/users'
+  ];
+  for (const kw of adminKeywords) {
+    const idx = pathname.indexOf(kw);
+    if (idx > 0) {
+      return pathname.substring(0, idx);
+    }
+  }
+  
   const adminIdx = pathname.indexOf('/admin');
   if (adminIdx !== -1) {
     return pathname.substring(0, adminIdx + 6);
   }
+  
+  if (pathname && pathname !== '/') {
+    return pathname;
+  }
+  
   return '/admin';
 }
 
