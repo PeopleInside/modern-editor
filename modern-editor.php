@@ -45,13 +45,17 @@ class ModernEditorPlugin extends Plugin
             return $this->cachedAdminRoute;
         }
         $adminRoute = trim((string) $this->config->get('plugins.admin.route', '/admin'));
-        $this->cachedAdminRoute = '/' . ltrim($adminRoute ?: '/admin', '/');
+        if ($adminRoute === '') {
+            $adminRoute = '/admin';
+        }
+        $this->cachedAdminRoute = '/' . ltrim($adminRoute, '/');
         return $this->cachedAdminRoute;
     }
 
     private function getAdminPath(): string
     {
-        return rtrim($this->grav['base_url_relative'], '/') . $this->getAdminRoute();
+        $baseUrl = rtrim($this->grav['base_url_relative'], '/');
+        return $baseUrl . '/' . ltrim($this->getAdminRoute(), '/');
     }
 
     private function getAdminBase(): string
