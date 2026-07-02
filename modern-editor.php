@@ -48,6 +48,7 @@ class ModernEditorPlugin extends Plugin
         if ($adminRoute === '') {
             $adminRoute = '/admin';
         }
+        // Always cache with a leading slash; fallback '/admin' ensures it is never empty.
         $this->cachedAdminRoute = '/' . ltrim($adminRoute, '/');
         return $this->cachedAdminRoute;
     }
@@ -56,6 +57,7 @@ class ModernEditorPlugin extends Plugin
     {
         $baseUrl = rtrim($this->grav['base_url_relative'], '/');
         $adminRoute = '/' . ltrim($this->getAdminRoute(), '/');
+        // When Grav is installed at the domain root, $baseUrl is empty and we return a root-relative $adminRoute.
         return $baseUrl . $adminRoute;
     }
 
