@@ -51,7 +51,7 @@ function loadScript(url, globalName) {
 function loadMarkdownLibraries() {
   const localPrefix = getLocalPrefix();
   const markedUrl = localPrefix ? localPrefix + '/admin-next/fields/lib/marked.min.js' : 'https://cdn.jsdelivr.net/npm/marked@12.0.1/marked.min.js';
-  const turndownUrl = localPrefix ? localPrefix + '/admin-next/fields/lib/turndown.js' : 'https://cdn.jsdelivr.net/npm/turndown@7.1.3/dist/turndown.min.js';
+  const turndownUrl = localPrefix ? localPrefix + '/admin-next/fields/lib/turndown.min.js' : 'https://cdn.jsdelivr.net/npm/turndown@7.1.3/dist/turndown.min.js';
 
   return Promise.all([
     loadScript(markedUrl, 'marked'),
