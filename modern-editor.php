@@ -160,7 +160,6 @@ class ModernEditorPlugin extends Plugin
                     header('Cache-Control: no-cache, no-store, must-revalidate, private');
                     header('X-Content-Type-Options: nosniff');
                     header('X-Frame-Options: DENY');
-                    header('X-XSS-Protection: 1; mode=block');
                     
                     echo json_encode([
                         'status' => $success ? 'success' : 'error',
@@ -195,7 +194,6 @@ class ModernEditorPlugin extends Plugin
                    header('Cache-Control: no-cache, no-store, must-revalidate, private');
                    header('X-Content-Type-Options: nosniff');
                    header('X-Frame-Options: DENY');
-                   header('X-XSS-Protection: 1; mode=block');
                     
                    echo json_encode([
                        'status' => 'error',
@@ -265,7 +263,6 @@ class ModernEditorPlugin extends Plugin
                     header('Cache-Control: no-cache, no-store, must-revalidate, private');
                     header('X-Content-Type-Options: nosniff');
                     header('X-Frame-Options: DENY');
-                    header('X-XSS-Protection: 1; mode=block');
                     
                     echo json_encode([
                         'status' => $status,
@@ -298,7 +295,6 @@ class ModernEditorPlugin extends Plugin
                    header('Cache-Control: no-cache, no-store, must-revalidate, private');
                    header('X-Content-Type-Options: nosniff');
                    header('X-Frame-Options: DENY');
-                   header('X-XSS-Protection: 1; mode=block');
                     
                    echo json_encode([
                        'status' => 'error',
@@ -351,7 +347,6 @@ class ModernEditorPlugin extends Plugin
                     header('Cache-Control: no-cache, no-store, must-revalidate, private');
                     header('X-Content-Type-Options: nosniff');
                     header('X-Frame-Options: DENY');
-                    header('X-XSS-Protection: 1; mode=block');
                     
                     echo json_encode([
                         'status' => 'success',
@@ -376,7 +371,6 @@ class ModernEditorPlugin extends Plugin
                    header('Cache-Control: no-cache, no-store, must-revalidate, private');
                    header('X-Content-Type-Options: nosniff');
                    header('X-Frame-Options: DENY');
-                   header('X-XSS-Protection: 1; mode=block');
                     
                    echo json_encode([
                        'status' => 'error',
@@ -418,7 +412,6 @@ class ModernEditorPlugin extends Plugin
                 header('Expires: 0');
                 header('X-Content-Type-Options: nosniff');
                 header('X-Frame-Options: DENY');
-                header('X-XSS-Protection: 1; mode=block');
                 
                 echo json_encode([
                     'editor_source' => $this->config->get('plugins.modern-editor.editor_source', 'cdn'),
@@ -475,7 +468,6 @@ class ModernEditorPlugin extends Plugin
                 header('Expires: 0');
                 header('X-Content-Type-Options: nosniff');
                 header('X-Frame-Options: DENY');
-                header('X-XSS-Protection: 1; mode=block');
                 
                 echo json_encode([
                     'is_installed' => $isInstalled,
