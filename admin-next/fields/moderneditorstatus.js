@@ -33,6 +33,27 @@ function getAdminPath() {
   }
   
   const pathname = window.location.pathname;
+  
+  // Dynamic parsing of the first segment after Grav site base relative path
+  let siteBase = '';
+  if (window.GravAdmin?.config?.base_url_relative) {
+    siteBase = window.GravAdmin.config.base_url_relative;
+  } else if (window.Grav?.config?.base_url_relative) {
+    siteBase = window.Grav.config.base_url_relative;
+  }
+  
+  if (siteBase.endsWith('/')) {
+    siteBase = siteBase.slice(0, -1);
+  }
+  
+  if (pathname.startsWith(siteBase)) {
+    const relativePath = pathname.substring(siteBase.length);
+    const segments = relativePath.split('/').filter(Boolean);
+    if (segments.length > 0) {
+      return siteBase + '/' + segments[0];
+    }
+  }
+  
   const adminKeywords = [
     '/plugins', '/pages', '/dashboard', '/themes', '/configuration', 
     '/config', '/tools', '/navigation', '/media', '/users'
@@ -40,17 +61,16 @@ function getAdminPath() {
   for (const kw of adminKeywords) {
     const idx = pathname.indexOf(kw);
     if (idx > 0) {
-      return pathname.substring(0, idx);
+      const nextChar = pathname.charAt(idx + kw.length);
+      if (nextChar === '' || nextChar === '/') {
+        return pathname.substring(0, idx);
+      }
     }
   }
   
   const adminIdx = pathname.indexOf('/admin');
   if (adminIdx !== -1) {
     return pathname.substring(0, adminIdx + 6);
-  }
-  
-  if (pathname && pathname !== '/') {
-    return pathname;
   }
   
   return '/admin';
