@@ -36,6 +36,15 @@ class ModernEditorPlugin extends Plugin
     /** @var string Path (stream) where the override blueprints are generated */
     protected $generatedPath = 'cache://modern-editor/blueprints/pages';
 
+    private function getAdminRoute(): string
+    {
+        $adminRoute = trim((string) $this->config->get('plugins.admin.route', '/admin'));
+        if ($adminRoute === '') {
+            $adminRoute = '/admin';
+        }
+        return '/' . ltrim($adminRoute, '/');
+    }
+
     public static function getSubscribedEvents(): array
     {
         return [
@@ -65,6 +74,9 @@ class ModernEditorPlugin extends Plugin
         if (!$this->isAdmin()) {
             return;
         }
+
+        $adminRoute = $this->getAdminRoute();
+        $adminBase = rtrim($this->grav['base_url_relative'], '/') . $adminRoute . '/plugins/modern-editor';
 
         $uri = $this->grav['uri'];
         $action = $uri->query('action');
@@ -149,7 +161,7 @@ class ModernEditorPlugin extends Plugin
                     }
                 }
 
-                $this->grav->redirect($this->grav['base_url_relative'] . '/admin/plugins/modern-editor');
+                $this->grav->redirect($adminBase);
             } else {
                 if ($isAjax) {
                     header('Content-Type: application/json');
@@ -240,7 +252,7 @@ class ModernEditorPlugin extends Plugin
                     }
                 }
 
-                $this->grav->redirect($this->grav['base_url_relative'] . '/admin/plugins/modern-editor');
+                $this->grav->redirect($adminBase);
             } else {
                 if ($isAjax) {
                     header('Content-Type: application/json');
@@ -306,7 +318,7 @@ class ModernEditorPlugin extends Plugin
                     $this->grav['messages']->add("Offline TinyMCE files have been successfully removed!", 'info');
                 }
 
-                $this->grav->redirect($this->grav['base_url_relative'] . '/admin/plugins/modern-editor');
+                $this->grav->redirect($adminBase);
             } else {
                 if ($isAjax) {
                     header('Content-Type: application/json');
@@ -394,8 +406,6 @@ class ModernEditorPlugin extends Plugin
                 if (isset($this->grav['session'])) {
                     $latestVersion = $this->grav['session']->modern_editor_latest_version ?? null;
                 }
-
-                $adminBase = $this->grav['base_url_relative'] . '/admin/plugins/modern-editor';
 
                 header('Content-Type: application/json');
                 header('Cache-Control: no-cache, no-store, must-revalidate');
@@ -692,9 +702,12 @@ YAML;
             $latestVersion = $this->grav['session']->modern_editor_latest_version ?? null;
         }
 
-        $checkUrl = $this->grav['base_url_relative'] . '/admin/plugins/modern-editor?action=check_updates';
-        $reinstallUrl = $this->grav['base_url_relative'] . '/admin/plugins/modern-editor?action=download_tinymce&version=7.4.0';
-        $removeUrl = $this->grav['base_url_relative'] . '/admin/plugins/modern-editor?action=remove_tinymce_local';
+        $adminRoute = $this->getAdminRoute();
+        $adminBase = rtrim($this->grav['base_url_relative'], '/') . $adminRoute . '/plugins/modern-editor';
+
+        $checkUrl = $adminBase . '?action=check_updates';
+        $reinstallUrl = $adminBase . '?action=download_tinymce&version=7.4.0';
+        $removeUrl = $adminBase . '?action=remove_tinymce_local';
 
         $editorSource = $this->config->get('plugins.modern-editor.editor_source', 'cdn');
 
@@ -866,7 +879,7 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
                 $html .= "<a class='button button-small' href='{$checkUrlEsc}' data-loading-text='Verifica in corso...' style='background: #4b5563; color: white; border: none; padding: 6px 12px; border-radius: 4px; text-decoration: none; display: inline-block; font-size: 13px;'>Verifica aggiornamenti</a>";
 
                 if ($latestVersion && (!$isInstalled || $installedVersion !== $latestVersion)) {
-                    $updateUrl = $this->grav['base_url_relative'] . "/admin/plugins/modern-editor?action=download_tinymce&version={$latestVersion}";
+                    $updateUrl = $adminBase . "?action=download_tinymce&version={$latestVersion}";
                     $updateUrlEsc = htmlspecialchars($updateUrl, ENT_QUOTES, 'UTF-8');
                     $html .= "<a class='button button-small' href='{$updateUrlEsc}' data-loading-text='Scaricamento in corso...' style='background: #2563eb; color: white; border: none; padding: 6px 12px; border-radius: 4px; text-decoration: none; display: inline-block; font-size: 13px; font-weight: bold;'>Scarica v{$latestVersionEsc}</a>";
                 } else {
@@ -909,7 +922,7 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
                 $html .= "<a class='button button-small' href='{$checkUrlEsc}' data-loading-text='Checking...' style='background: #4b5563; color: white; border: none; padding: 6px 12px; border-radius: 4px; text-decoration: none; display: inline-block; font-size: 13px;'>Check for Updates</a>";
 
                 if ($latestVersion && (!$isInstalled || $installedVersion !== $latestVersion)) {
-                    $updateUrl = $this->grav['base_url_relative'] . "/admin/plugins/modern-editor?action=download_tinymce&version={$latestVersion}";
+                    $updateUrl = $adminBase . "?action=download_tinymce&version={$latestVersion}";
                     $updateUrlEsc = htmlspecialchars($updateUrl, ENT_QUOTES, 'UTF-8');
                     $html .= "<a class='button button-small' href='{$updateUrlEsc}' data-loading-text='Downloading...' style='background: #2563eb; color: white; border: none; padding: 6px 12px; border-radius: 4px; text-decoration: none; display: inline-block; font-size: 13px; font-weight: bold;'>Download v{$latestVersionEsc}</a>";
                 } else {
@@ -950,7 +963,7 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
                     $html .= "<a class='button button-small' href='{$checkUrlEsc}' data-loading-text='Verifica in corso...' style='background: #4b5563; color: white; border: none; padding: 6px 12px; border-radius: 4px; text-decoration: none; display: inline-block; font-size: 13px;'>Verifica aggiornamenti</a>";
 
                     if ($latestVersion && $installedVersion !== $latestVersion) {
-                        $updateUrl = $this->grav['base_url_relative'] . "/admin/plugins/modern-editor?action=download_tinymce&version={$latestVersion}";
+                        $updateUrl = $adminBase . "?action=download_tinymce&version={$latestVersion}";
                         $updateUrlEsc = htmlspecialchars($updateUrl, ENT_QUOTES, 'UTF-8');
                         $html .= "<a class='button button-small' href='{$updateUrlEsc}' data-loading-text='Aggiornamento in corso...' style='background: #2563eb; color: white; border: none; padding: 6px 12px; border-radius: 4px; text-decoration: none; display: inline-block; font-size: 13px; font-weight: bold;'>Aggiorna a v{$latestVersionEsc}</a>";
                     }
@@ -981,7 +994,7 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
                     $html .= "<a class='button button-small' href='{$checkUrlEsc}' data-loading-text='Checking...' style='background: #4b5563; color: white; border: none; padding: 6px 12px; border-radius: 4px; text-decoration: none; display: inline-block; font-size: 13px;'>Check for Updates</a>";
 
                     if ($latestVersion && $installedVersion !== $latestVersion) {
-                        $updateUrl = $this->grav['base_url_relative'] . "/admin/plugins/modern-editor?action=download_tinymce&version={$latestVersion}";
+                        $updateUrl = $adminBase . "?action=download_tinymce&version={$latestVersion}";
                         $updateUrlEsc = htmlspecialchars($updateUrl, ENT_QUOTES, 'UTF-8');
                         $html .= "<a class='button button-small' href='{$updateUrlEsc}' data-loading-text='Updating...' style='background: #2563eb; color: white; border: none; padding: 6px 12px; border-radius: 4px; text-decoration: none; display: inline-block; font-size: 13px; font-weight: bold;'>Update to v{$latestVersionEsc}</a>";
                     }
@@ -1387,6 +1400,10 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
 
         $editorUrl = $this->getEditorScriptUrl();
         $this->grav['assets']->addInlineJs("window.__MODERN_EDITOR_URL__ = " . json_encode($editorUrl) . ";");
+
+        $adminRoute = $this->getAdminRoute();
+        $adminPath = rtrim($this->grav['base_url_relative'], '/') . $adminRoute;
+        $this->grav['assets']->addInlineJs("window.__MODERN_EDITOR_ADMIN_PATH__ = " . json_encode($adminPath) . ";");
     }
 
     /*
