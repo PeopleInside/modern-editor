@@ -35,13 +35,17 @@ function getAdminPath() {
   const pathname = window.location.pathname;
   const segments = pathname.split('/');
   
-  // Look for standard admin section keywords as complete path segments
+  // Look for standard admin section keywords as complete path segments.
+  // Note: These keywords are duplicated in moderneditor.js because both files
+  // are loaded independently as separate Web Components by Grav Admin.
   const adminKeywords = [
     'plugins', 'pages', 'dashboard', 'themes', 'configuration', 
     'config', 'tools', 'navigation', 'media', 'users'
   ];
   
-  for (let i = 0; i < segments.length; i++) {
+  // Since pathname always starts with '/', segments[0] is always empty.
+  // We start the search from index 1 to identify the admin route.
+  for (let i = 1; i < segments.length; i++) {
     if (adminKeywords.includes(segments[i])) {
       // Reconstruct the path using all segments preceding the admin keyword
       return segments.slice(0, i).join('/') || '/';
