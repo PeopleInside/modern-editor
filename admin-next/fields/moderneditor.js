@@ -147,9 +147,13 @@ function loadTinyMCE(url) {
 }
 
 function getAdminPath() {
+  // 1. Priority: Check if admin path was set by PHP
   if (window.__MODERN_EDITOR_ADMIN_PATH__) {
-    return window.__MODERN_EDITOR_ADMIN_PATH__;
+    const path = window.__MODERN_EDITOR_ADMIN_PATH__;
+    return path.endsWith('/') ? path.slice(0, -1) : path;
   }
+  
+  // 2. Check Grav global config objects
   if (window.GravAdmin?.config?.base_url_relative) {
     return window.GravAdmin.config.base_url_relative;
   }
@@ -163,8 +167,9 @@ function getAdminPath() {
     return window.Grav.config.base_url;
   }
   
+  // 3. Fallback: Detect admin path from current URL pathname
   const pathname = window.location.pathname;
-  const segments = pathname.split('/');
+  const segments = pathname.split('/').filter(s => s.length > 0);
   
   // Look for standard admin section keywords as complete path segments.
   // Note: These keywords are duplicated in moderneditorstatus.js because both files
@@ -174,21 +179,23 @@ function getAdminPath() {
     'config', 'tools', 'navigation', 'media', 'users'
   ];
   
-  // Since pathname always starts with '/', segments[0] is always empty.
-  // We start the search from index 1 to identify the admin route.
-  for (let i = 1; i < segments.length; i++) {
+  // Find the first admin keyword and reconstruct base path
+  for (let i = 0; i < segments.length; i++) {
     if (adminKeywords.includes(segments[i])) {
       // Reconstruct the path using all segments preceding the admin keyword
-      return segments.slice(0, i).join('/');
+      const basePath = '/' + segments.slice(0, i).join('/');
+      return basePath === '/' ? '' : basePath;
     }
   }
   
+  // 4. Last resort: Check for /admin pattern
   const adminIdx = pathname.indexOf('/admin');
   if (adminIdx !== -1) {
-    return pathname.substring(0, adminIdx + 6);
+    const basePath = pathname.substring(0, adminIdx);
+    return basePath === '' ? '/admin' : basePath + '/admin';
   }
   
-  return '/admin';
+  return '';
 }
 
 let cachedConfig = null;
@@ -226,20 +233,38 @@ function getEditorUrl(field) {
   // 1. Detect the dynamic plugin root path via the script tag of moderneditor.js
   const localPrefix = getLocalPrefix();
 
-  // 2. Check the configured editor URL from the blueprint / global variable
-  const configUrl = window.__MODERN_EDITOR_URL__ || field?.editor_url || '';
+  // 2. Check the configured editor URL from the PHP global variable first
+  const globalUrl = window.__MODERN_EDITOR_URL__;
+  
+  // 3. Check the configured editor URL from the blueprint / field
+  const configUrl = field?.editor_url || '';
 
-  // 3. If local source is active or configUrl points to a local file, construct a perfect local URL
-  const isCdn = configUrl.includes('cdn.jsdelivr.net') || configUrl.includes('tiny.cloud') || configUrl.includes('cdnjs');
-  if (field?.editor_source === 'local' || (configUrl && !isCdn)) {
+  // 4. If local source is explicitly configured, prefer local path
+  if (field?.editor_source === 'local') {
+    if (globalUrl && !isTrustedTinyMceCdnUrl(globalUrl)) {
+      return globalUrl;
+    }
     if (localPrefix) {
       return localPrefix + '/assets/tinymce/tinymce.min.js';
     }
+    // If we can't determine local path, still try config URL if it's local
+    if (configUrl && !isTrustedTinyMceCdnUrl(configUrl)) {
+      return configUrl;
+    }
+  }
+
+  // 5. If we have a global URL from PHP, use it (it respects the user's config)
+  if (globalUrl) {
+    return globalUrl;
+  }
+
+  // 6. Fallback to config URL or CDN
+  if (configUrl && configUrl.trim() !== '') {
     return configUrl;
   }
 
-  // Fallback to CDN or global URL
-  return configUrl || TINYMCE_CDN;
+  // 7. Final fallback to CDN
+  return TINYMCE_CDN;
 }
 
 function ensureBaseUrl(url) {

@@ -155,7 +155,13 @@ class ModernEditorPlugin extends Plugin
                 }
 
                 if ($isAjax) {
-                    header('Content-Type: application/json');
+                    // ✅ FIX: Security headers for AJAX responses
+                    header('Content-Type: application/json; charset=utf-8');
+                    header('Cache-Control: no-cache, no-store, must-revalidate, private');
+                    header('X-Content-Type-Options: nosniff');
+                    header('X-Frame-Options: DENY');
+                    header('X-XSS-Protection: 1; mode=block');
+                    
                     echo json_encode([
                         'status' => $success ? 'success' : 'error',
                         'message' => $success
@@ -184,20 +190,26 @@ class ModernEditorPlugin extends Plugin
                 $this->grav->redirect($adminBase);
             } else {
                 if ($isAjax) {
-                    header('Content-Type: application/json');
-                    echo json_encode([
-                        'status' => 'error',
-                        'message' => $lang === 'it' ? "Azione non autorizzata." : "Unauthorized action."
-                    ]);
-                    exit;
-                }
+                   // ✅ FIX: Security headers for AJAX error responses
+                   header('Content-Type: application/json; charset=utf-8');
+                   header('Cache-Control: no-cache, no-store, must-revalidate, private');
+                   header('X-Content-Type-Options: nosniff');
+                   header('X-Frame-Options: DENY');
+                   header('X-XSS-Protection: 1; mode=block');
+                    
+                   echo json_encode([
+                       'status' => 'error',
+                       'message' => $lang === 'it' ? "Azione non autorizzata." : "Unauthorized action."
+                   ]);
+                   exit;
+               }
 
-                $admin = $this->grav['admin'] ?? null;
-                if ($admin) {
-                    $admin->setMessage("Unauthorized action.", 'error');
-                } else {
-                    $this->grav['messages']->add("Unauthorized action.", 'error');
-                }
+               $admin = $this->grav['admin'] ?? null;
+               if ($admin) {
+                   $admin->setMessage("Unauthorized action.", 'error');
+               } else {
+                   $this->grav['messages']->add("Unauthorized action.", 'error');
+               }
             }
         }
 
@@ -248,7 +260,13 @@ class ModernEditorPlugin extends Plugin
                 }
 
                 if ($isAjax) {
-                    header('Content-Type: application/json');
+                    // ✅ FIX: Security headers for AJAX responses
+                    header('Content-Type: application/json; charset=utf-8');
+                    header('Cache-Control: no-cache, no-store, must-revalidate, private');
+                    header('X-Content-Type-Options: nosniff');
+                    header('X-Frame-Options: DENY');
+                    header('X-XSS-Protection: 1; mode=block');
+                    
                     echo json_encode([
                         'status' => $status,
                         'message' => $msg,
@@ -275,20 +293,26 @@ class ModernEditorPlugin extends Plugin
                 $this->grav->redirect($adminBase);
             } else {
                 if ($isAjax) {
-                    header('Content-Type: application/json');
-                    echo json_encode([
-                        'status' => 'error',
-                        'message' => $lang === 'it' ? "Azione non autorizzata." : "Unauthorized action."
-                    ]);
-                    exit;
-                }
+                   // ✅ FIX: Security headers for AJAX error responses
+                   header('Content-Type: application/json; charset=utf-8');
+                   header('Cache-Control: no-cache, no-store, must-revalidate, private');
+                   header('X-Content-Type-Options: nosniff');
+                   header('X-Frame-Options: DENY');
+                   header('X-XSS-Protection: 1; mode=block');
+                    
+                   echo json_encode([
+                       'status' => 'error',
+                       'message' => $lang === 'it' ? "Azione non autorizzata." : "Unauthorized action."
+                   ]);
+                   exit;
+               }
 
-                $admin = $this->grav['admin'] ?? null;
-                if ($admin) {
-                    $admin->setMessage("Unauthorized action.", 'error');
-                } else {
-                    $this->grav['messages']->add("Unauthorized action.", 'error');
-                }
+               $admin = $this->grav['admin'] ?? null;
+               if ($admin) {
+                   $admin->setMessage("Unauthorized action.", 'error');
+               } else {
+                   $this->grav['messages']->add("Unauthorized action.", 'error');
+               }
             }
         }
 
@@ -322,7 +346,13 @@ class ModernEditorPlugin extends Plugin
                 }
 
                 if ($isAjax) {
-                    header('Content-Type: application/json');
+                    // ✅ FIX: Security headers for AJAX responses
+                    header('Content-Type: application/json; charset=utf-8');
+                    header('Cache-Control: no-cache, no-store, must-revalidate, private');
+                    header('X-Content-Type-Options: nosniff');
+                    header('X-Frame-Options: DENY');
+                    header('X-XSS-Protection: 1; mode=block');
+                    
                     echo json_encode([
                         'status' => 'success',
                         'message' => $lang === 'it' ? "I file offline di TinyMCE sono stati rimossi con successo!" : "Offline TinyMCE files have been successfully removed!",
@@ -341,19 +371,25 @@ class ModernEditorPlugin extends Plugin
                 $this->grav->redirect($adminBase);
             } else {
                 if ($isAjax) {
-                    header('Content-Type: application/json');
-                    echo json_encode([
-                        'status' => 'error',
-                        'message' => $lang === 'it' ? "Azione non autorizzata." : "Unauthorized action."
-                    ]);
-                    exit;
-                }
+                   // ✅ FIX: Security headers for AJAX error responses
+                   header('Content-Type: application/json; charset=utf-8');
+                   header('Cache-Control: no-cache, no-store, must-revalidate, private');
+                   header('X-Content-Type-Options: nosniff');
+                   header('X-Frame-Options: DENY');
+                   header('X-XSS-Protection: 1; mode=block');
+                    
+                   echo json_encode([
+                       'status' => 'error',
+                       'message' => $lang === 'it' ? "Azione non autorizzata." : "Unauthorized action."
+                   ]);
+                   exit;
+               }
 
-                $admin = $this->grav['admin'] ?? null;
-                if ($admin) {
-                    $admin->setMessage("Unauthorized action.", 'error');
-                } else {
-                    $this->grav['messages']->add("Unauthorized action.", 'error');
+               $admin = $this->grav['admin'] ?? null;
+               if ($admin) {
+                   $admin->setMessage("Unauthorized action.", 'error');
+               } else {
+                   $this->grav['messages']->add("Unauthorized action.", 'error');
                 }
             }
         }
@@ -375,10 +411,15 @@ class ModernEditorPlugin extends Plugin
             }
 
             if ($isAuthorized) {
-                header('Content-Type: application/json');
-                header('Cache-Control: no-cache, no-store, must-revalidate');
+                // ✅ FIX: Security headers for AJAX responses
+                header('Content-Type: application/json; charset=utf-8');
+                header('Cache-Control: no-cache, no-store, must-revalidate, private');
                 header('Pragma: no-cache');
                 header('Expires: 0');
+                header('X-Content-Type-Options: nosniff');
+                header('X-Frame-Options: DENY');
+                header('X-XSS-Protection: 1; mode=block');
+                
                 echo json_encode([
                     'editor_source' => $this->config->get('plugins.modern-editor.editor_source', 'cdn'),
                     'editor_url' => $this->getEditorScriptUrl(),
@@ -427,10 +468,15 @@ class ModernEditorPlugin extends Plugin
                     $latestVersion = $this->grav['session']->modern_editor_latest_version ?? null;
                 }
 
-                header('Content-Type: application/json');
-                header('Cache-Control: no-cache, no-store, must-revalidate');
+                // ✅ FIX: Security headers for AJAX responses
+                header('Content-Type: application/json; charset=utf-8');
+                header('Cache-Control: no-cache, no-store, must-revalidate, private');
                 header('Pragma: no-cache');
                 header('Expires: 0');
+                header('X-Content-Type-Options: nosniff');
+                header('X-Frame-Options: DENY');
+                header('X-XSS-Protection: 1; mode=block');
+                
                 echo json_encode([
                     'is_installed' => $isInstalled,
                     'installed_version' => $installedVersion,

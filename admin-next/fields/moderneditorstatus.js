@@ -16,9 +16,13 @@
 const TAG = window.__GRAV_FIELD_TAG;
 
 function getAdminPath() {
+  // 1. Priority: Check if admin path was set by PHP
   if (window.__MODERN_EDITOR_ADMIN_PATH__) {
-    return window.__MODERN_EDITOR_ADMIN_PATH__;
+    const path = window.__MODERN_EDITOR_ADMIN_PATH__;
+    return path.endsWith('/') ? path.slice(0, -1) : path;
   }
+  
+  // 2. Check Grav global config objects
   if (window.GravAdmin?.config?.base_url_relative) {
     return window.GravAdmin.config.base_url_relative;
   }
@@ -32,8 +36,9 @@ function getAdminPath() {
     return window.Grav.config.base_url;
   }
   
+  // 3. Fallback: Detect admin path from current URL pathname
   const pathname = window.location.pathname;
-  const segments = pathname.split('/');
+  const segments = pathname.split('/').filter(s => s.length > 0);
   
   // Look for standard admin section keywords as complete path segments.
   // Note: These keywords are duplicated in moderneditor.js because both files
@@ -43,21 +48,23 @@ function getAdminPath() {
     'config', 'tools', 'navigation', 'media', 'users'
   ];
   
-  // Since pathname always starts with '/', segments[0] is always empty.
-  // We start the search from index 1 to identify the admin route.
-  for (let i = 1; i < segments.length; i++) {
+  // Find the first admin keyword and reconstruct base path
+  for (let i = 0; i < segments.length; i++) {
     if (adminKeywords.includes(segments[i])) {
       // Reconstruct the path using all segments preceding the admin keyword
-      return segments.slice(0, i).join('/');
+      const basePath = '/' + segments.slice(0, i).join('/');
+      return basePath === '/' ? '' : basePath;
     }
   }
   
+  // 4. Last resort: Check for /admin pattern
   const adminIdx = pathname.indexOf('/admin');
   if (adminIdx !== -1) {
-    return pathname.substring(0, adminIdx + 6);
+    const basePath = pathname.substring(0, adminIdx);
+    return basePath === '' ? '/admin' : basePath + '/admin';
   }
   
-  return '/admin';
+  return '';
 }
 
 class ModernEditorStatusField extends HTMLElement {
