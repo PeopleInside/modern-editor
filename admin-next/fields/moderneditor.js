@@ -179,7 +179,7 @@ function getAdminPath() {
   for (let i = 1; i < segments.length; i++) {
     if (adminKeywords.includes(segments[i])) {
       // Reconstruct the path using all segments preceding the admin keyword
-      return segments.slice(0, i).join('/') || '/';
+      return segments.slice(0, i).join('/');
     }
   }
   
