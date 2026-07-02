@@ -45,16 +45,18 @@ class ModernEditorPlugin extends Plugin
             return $this->cachedAdminRoute;
         }
         $adminRoute = trim((string) $this->config->get('plugins.admin.route', '/admin'));
-        if ($adminRoute === '') {
-            $adminRoute = '/admin';
-        }
-        $this->cachedAdminRoute = '/' . ltrim($adminRoute, '/');
+        $this->cachedAdminRoute = '/' . ltrim($adminRoute ?: '/admin', '/');
         return $this->cachedAdminRoute;
+    }
+
+    private function getAdminPath(): string
+    {
+        return rtrim($this->grav['base_url_relative'], '/') . $this->getAdminRoute();
     }
 
     private function getAdminBase(): string
     {
-        return rtrim($this->grav['base_url_relative'], '/') . $this->getAdminRoute() . '/plugins/modern-editor';
+        return $this->getAdminPath() . '/plugins/modern-editor';
     }
 
     public static function getSubscribedEvents(): array
@@ -1411,8 +1413,7 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
         $editorUrl = $this->getEditorScriptUrl();
         $this->grav['assets']->addInlineJs("window.__MODERN_EDITOR_URL__ = " . json_encode($editorUrl) . ";");
 
-        $adminRoute = $this->getAdminRoute();
-        $adminPath = rtrim($this->grav['base_url_relative'], '/') . $adminRoute;
+        $adminPath = $this->getAdminPath();
         $this->grav['assets']->addInlineJs("window.__MODERN_EDITOR_ADMIN_PATH__ = " . json_encode($adminPath) . ";");
     }
 
