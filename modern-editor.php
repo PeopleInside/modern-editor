@@ -36,13 +36,34 @@ class ModernEditorPlugin extends Plugin
     /** @var string Path (stream) where the override blueprints are generated */
     protected $generatedPath = 'cache://modern-editor/blueprints/pages';
 
+    /** @var string|null Cached admin route */
+    private $cachedAdminRoute = null;
+
     private function getAdminRoute(): string
     {
+        if ($this->cachedAdminRoute !== null) {
+            return $this->cachedAdminRoute;
+        }
         $adminRoute = trim((string) $this->config->get('plugins.admin.route', '/admin'));
         if ($adminRoute === '') {
             $adminRoute = '/admin';
         }
-        return '/' . ltrim($adminRoute, '/');
+        // Always cache with a leading slash; fallback '/admin' ensures it is never empty.
+        $this->cachedAdminRoute = '/' . ltrim($adminRoute, '/');
+        return $this->cachedAdminRoute;
+    }
+
+    private function getAdminPath(): string
+    {
+        $baseUrl = rtrim($this->grav['base_url_relative'], '/');
+        $adminRoute = '/' . ltrim($this->getAdminRoute(), '/');
+        // When Grav is installed at the domain root, $baseUrl is empty and we return a root-relative $adminRoute.
+        return $baseUrl . $adminRoute;
+    }
+
+    private function getAdminBase(): string
+    {
+        return $this->getAdminPath() . '/plugins/modern-editor';
     }
 
     public static function getSubscribedEvents(): array
@@ -75,9 +96,6 @@ class ModernEditorPlugin extends Plugin
             return;
         }
 
-        $adminRoute = $this->getAdminRoute();
-        $adminBase = rtrim($this->grav['base_url_relative'], '/') . $adminRoute . '/plugins/modern-editor';
-
         $uri = $this->grav['uri'];
         $action = $uri->query('action');
 
@@ -97,6 +115,8 @@ class ModernEditorPlugin extends Plugin
             }
             return;
         }
+
+        $adminBase = $this->getAdminBase();
 
         $isAjax = $uri->query('ajax') === '1';
         $lang = 'en';
@@ -702,8 +722,7 @@ YAML;
             $latestVersion = $this->grav['session']->modern_editor_latest_version ?? null;
         }
 
-        $adminRoute = $this->getAdminRoute();
-        $adminBase = rtrim($this->grav['base_url_relative'], '/') . $adminRoute . '/plugins/modern-editor';
+        $adminBase = $this->getAdminBase();
 
         $checkUrl = $adminBase . '?action=check_updates';
         $reinstallUrl = $adminBase . '?action=download_tinymce&version=7.4.0';
@@ -1401,8 +1420,7 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
         $editorUrl = $this->getEditorScriptUrl();
         $this->grav['assets']->addInlineJs("window.__MODERN_EDITOR_URL__ = " . json_encode($editorUrl) . ";");
 
-        $adminRoute = $this->getAdminRoute();
-        $adminPath = rtrim($this->grav['base_url_relative'], '/') . $adminRoute;
+        $adminPath = $this->getAdminPath();
         $this->grav['assets']->addInlineJs("window.__MODERN_EDITOR_ADMIN_PATH__ = " . json_encode($adminPath) . ";");
     }
 

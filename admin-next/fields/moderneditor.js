@@ -18,6 +18,80 @@ const TAG = window.__GRAV_FIELD_TAG;
 const TINYMCE_CDN = 'https://cdn.jsdelivr.net/npm/tinymce@7/tinymce.min.js';
 const TINYMCE_CDN_HOSTS = ['cdn.jsdelivr.net', 'tiny.cloud', 'cdnjs.cloudflare.com'];
 
+function getLocalPrefix() {
+  const scriptEl = document.querySelector('script[src*="moderneditor.js"]');
+  if (scriptEl) {
+    const src = scriptEl.getAttribute('src') || '';
+    const idx = src.indexOf('/admin-next/fields/moderneditor.js');
+    if (idx !== -1) {
+      return src.substring(0, idx);
+    }
+  }
+  return '';
+}
+
+function loadScript(url, globalName) {
+  if (window[globalName]) {
+    return Promise.resolve(window[globalName]);
+  }
+  const loadingKey = '__LOADING_' + globalName + '__';
+  if (window[loadingKey]) {
+    return window[loadingKey];
+  }
+  window[loadingKey] = new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = url;
+    script.onload = () => {
+      delete window[loadingKey];
+      resolve(window[globalName]);
+    };
+    script.onerror = () => {
+      delete window[loadingKey];
+      reject(new Error('Failed to load ' + globalName));
+    };
+    document.head.appendChild(script);
+  });
+  return window[loadingKey];
+}
+
+function loadMarkdownLibraries() {
+  const localPrefix = getLocalPrefix();
+  const markedUrl = localPrefix ? localPrefix + '/admin-next/fields/lib/marked.min.js' : 'https://cdn.jsdelivr.net/npm/marked@12.0.1/marked.min.js';
+  const turndownUrl = localPrefix ? localPrefix + '/admin-next/fields/lib/turndown.min.js' : 'https://cdn.jsdelivr.net/npm/turndown@7.1.3/dist/turndown.min.js';
+
+  return Promise.all([
+    loadScript(markedUrl, 'marked'),
+    loadScript(turndownUrl, 'TurndownService')
+  ]);
+}
+
+function convertMarkdownToHtml(markdown) {
+  if (window.marked) {
+    if (typeof window.marked.parse === 'function') {
+      return window.marked.parse(markdown);
+    }
+    if (typeof window.marked === 'function') {
+      return window.marked(markdown);
+    }
+  }
+  console.warn('Modern Editor: window.marked is not loaded. Displaying raw content.');
+  return markdown;
+}
+
+function convertHtmlToMarkdown(html) {
+  if (window.TurndownService) {
+    const turndownService = new window.TurndownService({
+      headingStyle: 'atx',
+      hr: '---',
+      bulletListMarker: '-',
+      codeBlockStyle: 'fenced'
+    });
+    return turndownService.turndown(html);
+  }
+  console.warn('Modern Editor: window.TurndownService is not loaded. Saving content as HTML.');
+  return html;
+}
+
 function isTrustedTinyMceCdnUrl(url) {
   try {
     const parsed = new URL(url, window.location.href);
@@ -70,256 +144,6 @@ function loadTinyMCE(url) {
     document.head.appendChild(script);
   });
   return window.__TINYMCE_LOADING__;
-}
-
-function markdownToHtml(markdown) {
-  if (!markdown) return '';
-  
-  let normalizedText = markdown.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-  const blocks = normalizedText.split(/\n{2,}/);
-  const htmlBlocks = [];
-  let inList = false;
-  let listType = '';
-  
-  function closeList() {
-    if (inList) {
-      htmlBlocks.push(`</${listType}>`);
-      inList = false;
-      listType = '';
-    }
-  }
-  
-  for (let block of blocks) {
-    let trimmed = block.trim();
-    if (!trimmed) continue;
-    
-    const headingMatch = trimmed.match(/^(#{1,6})\s+(.*)$/);
-    if (headingMatch) {
-      closeList();
-      const level = headingMatch[1].length;
-      const content = parseInlineMarkdown(headingMatch[2]);
-      htmlBlocks.push(`<h${level}>${content}</h${level}>`);
-      continue;
-    }
-    
-    if (trimmed.startsWith('>')) {
-      closeList();
-      const content = trimmed.split('\n').map(line => line.replace(/^>\s?/, '')).join('\n');
-      htmlBlocks.push(`<blockquote>${markdownToHtml(content)}</blockquote>`);
-      continue;
-    }
-    
-    const ulMatch = trimmed.match(/^[\*\-\+]\s+(.*)$/);
-    const olMatch = trimmed.match(/^\d+\.\s+(.*)$/);
-    
-    if (ulMatch || olMatch) {
-      const isOl = !!olMatch;
-      const currentListType = isOl ? 'ol' : 'ul';
-      
-      if (!inList || listType !== currentListType) {
-        closeList();
-        inList = true;
-        listType = currentListType;
-        htmlBlocks.push(`<${listType}>`);
-      }
-      
-      const lines = trimmed.split('\n');
-      for (let line of lines) {
-        let itemTrimmed = line.trim();
-        const itemMatch = isOl ? itemTrimmed.match(/^\d+\.\s+(.*)$/) : itemTrimmed.match(/^[\*\-\+]\s+(.*)$/);
-        if (itemMatch) {
-          htmlBlocks.push(`<li>${parseInlineMarkdown(itemMatch[1])}</li>`);
-        } else if (itemTrimmed) {
-          const lastIdx = htmlBlocks.length - 1;
-          if (lastIdx >= 0 && htmlBlocks[lastIdx].endsWith('</li>')) {
-            htmlBlocks[lastIdx] = htmlBlocks[lastIdx].slice(0, -5) + ' ' + parseInlineMarkdown(itemTrimmed) + '</li>';
-          }
-        }
-      }
-      continue;
-    }
-    
-    if (trimmed.startsWith('```')) {
-      closeList();
-      const lines = trimmed.split('\n');
-      const lastLineIdx = lines[lines.length - 1].startsWith('```') ? lines.length - 1 : lines.length;
-      const codeLines = lines.slice(1, lastLineIdx).join('\n');
-      htmlBlocks.push(`<pre><code>${escapeHtml(codeLines)}</code></pre>`);
-      continue;
-    }
-    
-    closeList();
-    const content = trimmed.split('\n').map(line => parseInlineMarkdown(line.trim())).join('<br>');
-    htmlBlocks.push(`<p>${content}</p>`);
-  }
-  
-  closeList();
-  return htmlBlocks.join('\n');
-}
-
-function sanitizeUrl(url) {
-  let trimmed = (url || '').trim();
-  
-  // Decode HTML entities
-  try {
-    const txt = document.createElement('textarea');
-    txt.innerHTML = trimmed;
-    trimmed = txt.value;
-  } catch (e) {
-    // ignore decode errors on malformed entities
-  }
-
-  // Try to decode percent URL-encoded characters
-  try {
-    trimmed = decodeURIComponent(trimmed);
-  } catch (e) {
-    // ignore decode errors on malformed percent-encodings
-  }
-  
-  // Remove control characters (ASCII 0-32) and other invisible space characters
-  trimmed = trimmed.replace(/[\x00-\x20\u200B\u2028\u2029]/g, '');
-  
-  if (/^(javascript|data|vbscript|file):/i.test(trimmed)) {
-    return 'about:blank';
-  }
-  if (/^[a-z0-9+.-]+:/i.test(trimmed) && !/^(https?|mailto|tel):/i.test(trimmed)) {
-    return 'about:blank';
-  }
-  return trimmed.replace(/"/g, '%22').replace(/'/g, '%27');
-}
-
-function escapeHtml(str) {
-  return String(str ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
-function parseInlineMarkdown(str) {
-  let html = escapeHtml(str);
-  html = html.replace(/!\[(.*?)\]\((.*?)\)/g, (match, alt, url) => {
-    return `<img src="${sanitizeUrl(url)}" alt="${alt}">`;
-  });
-  html = html.replace(/\[(.*?)\]\((.*?)\)/g, (match, text, url) => {
-    return `<a href="${sanitizeUrl(url)}">${text}</a>`;
-  });
-  html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-  html = html.replace(/__(.*?)__/g, '<strong>$1</strong>');
-  html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
-  html = html.replace(/_(.*?)_/g, '<em>$1</em>');
-  html = html.replace(/`(.*?)`/g, '<code>$1</code>');
-  return html;
-}
-
-function htmlToMarkdown(html) {
-  if (!html) return '';
-  const parser = new DOMParser();
-  const doc = parser.parseFromString(html, 'text/html');
-  let markdown = nodeToMarkdown(doc.body);
-  markdown = markdown.replace(/\n{3,}/g, '\n\n');
-  return markdown.trim();
-}
-
-function nodeToMarkdown(node) {
-  let result = '';
-  if (node.nodeType === Node.TEXT_NODE) {
-    return node.nodeValue;
-  }
-  if (node.nodeType !== Node.ELEMENT_NODE) {
-    return '';
-  }
-  const tagName = node.tagName.toLowerCase();
-  let childrenMarkdown = '';
-  for (let child of node.childNodes) {
-    childrenMarkdown += nodeToMarkdown(child);
-  }
-  
-  switch (tagName) {
-    case 'h1':
-    case 'h2':
-    case 'h3':
-    case 'h4':
-    case 'h5':
-    case 'h6': {
-      const level = parseInt(tagName.charAt(1), 10);
-      result = '\n\n' + '#'.repeat(level) + ' ' + childrenMarkdown.trim() + '\n\n';
-      break;
-    }
-    case 'p':
-      result = '\n\n' + childrenMarkdown.trim() + '\n\n';
-      break;
-    case 'strong':
-    case 'b':
-      result = '**' + childrenMarkdown + '**';
-      break;
-    case 'em':
-    case 'i':
-      result = '*' + childrenMarkdown + '*';
-      break;
-    case 'code':
-      result = '`' + childrenMarkdown + '`';
-      break;
-    case 'a': {
-      const href = node.getAttribute('href') || '';
-      result = '[' + childrenMarkdown + '](' + href + ')';
-      break;
-    }
-    case 'img': {
-      const src = node.getAttribute('src') || '';
-      const alt = node.getAttribute('alt') || '';
-      result = '![' + alt + '](' + src + ')';
-      break;
-    }
-    case 'ul':
-      result = '\n\n' + childrenMarkdown + '\n\n';
-      break;
-    case 'ol': {
-      let olResult = '\n\n';
-      let index = 1;
-      for (let child of node.childNodes) {
-        if (child.nodeType === Node.ELEMENT_NODE && child.tagName.toLowerCase() === 'li') {
-          const itemMd = nodeToMarkdown(child).trim();
-          olResult += `${index}. ${itemMd}\n`;
-          index++;
-        }
-      }
-      result = olResult + '\n';
-      break;
-    }
-    case 'li': {
-      const parent = node.parentNode;
-      if (parent && parent.tagName.toLowerCase() === 'ol') {
-        result = childrenMarkdown;
-      } else {
-        result = '* ' + childrenMarkdown.trim() + '\n';
-      }
-      break;
-    }
-    case 'blockquote':
-      result = '\n\n' + childrenMarkdown.trim().split('\n').map(line => '> ' + line).join('\n') + '\n\n';
-      break;
-    case 'pre': {
-      const codeEl = node.querySelector('code');
-      if (codeEl) {
-        result = '\n\n```\n' + codeEl.textContent + '\n```\n\n';
-      } else {
-        result = '\n\n```\n' + node.textContent + '\n```\n\n';
-      }
-      break;
-    }
-    case 'br':
-      result = '\n';
-      break;
-    case 'div':
-      result = '\n' + childrenMarkdown + '\n';
-      break;
-    default:
-      result = childrenMarkdown;
-      break;
-  }
-  return result;
 }
 
 function getAdminPath() {
@@ -380,15 +204,7 @@ async function fetchConfig() {
 
 function getEditorUrl(field) {
   // 1. Detect the dynamic plugin root path via the script tag of moderneditor.js
-  let localPrefix = '';
-  const scriptEl = document.querySelector('script[src*="moderneditor.js"]');
-  if (scriptEl) {
-    const src = scriptEl.getAttribute('src') || '';
-    const idx = src.indexOf('/admin-next/fields/moderneditor.js');
-    if (idx !== -1) {
-      localPrefix = src.substring(0, idx);
-    }
-  }
+  const localPrefix = getLocalPrefix();
 
   // 2. Check the configured editor URL from the blueprint / global variable
   const configUrl = window.__MODERN_EDITOR_URL__ || field?.editor_url || '';
@@ -427,6 +243,7 @@ class TinyMCEField extends HTMLElement {
   _applying = false; // Avoid loop while applying an external value
   _ready = false;
   _bootstrapped = false;
+  _lastHtml = '';
 
   set field(f) {
     this._field = f || {};
@@ -444,20 +261,23 @@ class TinyMCEField extends HTMLElement {
     const newVal = v ?? '';
     this._value = newVal;
     if (this._editor && this._ready) {
-      let htmlVal = newVal;
-      if (typeof markdownToHtml === 'function') {
-        htmlVal = markdownToHtml(newVal);
-      }
-      const current = this._editor.getContent();
-      if (current !== htmlVal) {
-        this._applying = true;
-        this._editor.setContent(htmlVal);
-        this._applying = false;
+      const newHtml = convertMarkdownToHtml(newVal);
+      if (this._lastHtml !== newHtml) {
+        const currentHtml = this._editor.getContent();
+        if (currentHtml !== newHtml) {
+          this._applying = true;
+          this._editor.setContent(newHtml);
+          this._lastHtml = newHtml;
+          this._applying = false;
+        }
       }
     }
   }
 
   get value() {
+    if (this._editor && this._ready) {
+      return convertHtmlToMarkdown(this._editor.getContent());
+    }
     return this._value;
   }
 
@@ -514,7 +334,10 @@ class TinyMCEField extends HTMLElement {
 
     const url = getEditorUrl(this._field);
 
-    loadTinyMCE(url)
+    Promise.all([
+      loadTinyMCE(url),
+      loadMarkdownLibraries()
+    ])
       .then(() => {
         ensureBaseUrl(url);
         this._initEditor(isDarkMode);
@@ -631,22 +454,19 @@ class TinyMCEField extends HTMLElement {
         editor.on('init', () => {
           this._editor = editor;
           this._ready = true;
-          let htmlVal = this._value || '';
-          if (typeof markdownToHtml === 'function') {
-            htmlVal = markdownToHtml(htmlVal);
-          }
-          editor.setContent(htmlVal);
+          const html = convertMarkdownToHtml(this._value || '');
+          this._lastHtml = html;
+          editor.setContent(html);
         });
         editor.on('change keyup undo redo', () => {
           if (this._applying) return;
           const html = editor.getContent();
-          let mdVal = html;
-          if (typeof htmlToMarkdown === 'function') {
-            mdVal = htmlToMarkdown(html);
-          }
-          this._value = mdVal;
+          if (this._lastHtml === html) return;
+          this._lastHtml = html;
+          const markdown = convertHtmlToMarkdown(html);
+          this._value = markdown;
           this.dispatchEvent(new CustomEvent('change', {
-            detail: mdVal,
+            detail: markdown,
             bubbles: true,
           }));
         });
@@ -672,19 +492,19 @@ class TinyMCEField extends HTMLElement {
     const current = JSON.stringify({ ...this._cfg(), isDarkMode, editor_url: editorUrl });
     if (this._lastCfg === current) return;
     this._lastCfg = current;
-    const html = this._editor.getContent();
-    let mdVal = html;
-    if (typeof htmlToMarkdown === 'function') {
-      mdVal = htmlToMarkdown(html);
-    }
+    const markdown = convertHtmlToMarkdown(this._editor.getContent());
     this._editor.remove();
     this._ready = false;
     this._renderShell(isDarkMode);
     
-    loadTinyMCE(editorUrl).then(() => {
+    Promise.all([
+      loadTinyMCE(editorUrl),
+      loadMarkdownLibraries()
+    ]).then(() => {
       ensureBaseUrl(editorUrl);
       this._initEditor(isDarkMode);
-      this._value = mdVal;
+      this._value = markdown;
+      this._lastHtml = ''; // Reset cached HTML on re-initialization
     });
   }
 }
