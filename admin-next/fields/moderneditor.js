@@ -146,7 +146,260 @@ function loadTinyMCE(url) {
   return window.__TINYMCE_LOADING__;
 }
 
+function markdownToHtml(markdown) {
+  if (!markdown) return '';
+  
+  let normalizedText = markdown.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  const blocks = normalizedText.split(/\n{2,}/);
+  const htmlBlocks = [];
+  let inList = false;
+  let listType = '';
+  
+  function closeList() {
+    if (inList) {
+      htmlBlocks.push(`</${listType}>`);
+      inList = false;
+      listType = '';
+    }
+  }
+  
+  for (let block of blocks) {
+    let trimmed = block.trim();
+    if (!trimmed) continue;
+    
+    const headingMatch = trimmed.match(/^(#{1,6})\s+(.*)$/);
+    if (headingMatch) {
+      closeList();
+      const level = headingMatch[1].length;
+      const content = parseInlineMarkdown(headingMatch[2]);
+      htmlBlocks.push(`<h${level}>${content}</h${level}>`);
+      continue;
+    }
+    
+    if (trimmed.startsWith('>')) {
+      closeList();
+      const content = trimmed.split('\n').map(line => line.replace(/^>\s?/, '')).join('\n');
+      htmlBlocks.push(`<blockquote>${markdownToHtml(content)}</blockquote>`);
+      continue;
+    }
+    
+    const ulMatch = trimmed.match(/^[\*\-\+]\s+(.*)$/);
+    const olMatch = trimmed.match(/^\d+\.\s+(.*)$/);
+    
+    if (ulMatch || olMatch) {
+      const isOl = !!olMatch;
+      const currentListType = isOl ? 'ol' : 'ul';
+      
+      if (!inList || listType !== currentListType) {
+        closeList();
+        inList = true;
+        listType = currentListType;
+        htmlBlocks.push(`<${listType}>`);
+      }
+      
+      const lines = trimmed.split('\n');
+      for (let line of lines) {
+        let itemTrimmed = line.trim();
+        const itemMatch = isOl ? itemTrimmed.match(/^\d+\.\s+(.*)$/) : itemTrimmed.match(/^[\*\-\+]\s+(.*)$/);
+        if (itemMatch) {
+          htmlBlocks.push(`<li>${parseInlineMarkdown(itemMatch[1])}</li>`);
+        } else if (itemTrimmed) {
+          const lastIdx = htmlBlocks.length - 1;
+          if (lastIdx >= 0 && htmlBlocks[lastIdx].endsWith('</li>')) {
+            htmlBlocks[lastIdx] = htmlBlocks[lastIdx].slice(0, -5) + ' ' + parseInlineMarkdown(itemTrimmed) + '</li>';
+          }
+        }
+      }
+      continue;
+    }
+    
+    if (trimmed.startsWith('```')) {
+      closeList();
+      const lines = trimmed.split('\n');
+      const lastLineIdx = lines[lines.length - 1].startsWith('```') ? lines.length - 1 : lines.length;
+      const codeLines = lines.slice(1, lastLineIdx).join('\n');
+      htmlBlocks.push(`<pre><code>${escapeHtml(codeLines)}</code></pre>`);
+      continue;
+    }
+    
+    closeList();
+    const content = trimmed.split('\n').map(line => parseInlineMarkdown(line.trim())).join('<br>');
+    htmlBlocks.push(`<p>${content}</p>`);
+  }
+  
+  closeList();
+  return htmlBlocks.join('\n');
+}
+
+function sanitizeUrl(url) {
+  let trimmed = (url || '').trim();
+  
+  // Decode HTML entities
+  try {
+    const txt = document.createElement('textarea');
+    txt.innerHTML = trimmed;
+    trimmed = txt.value;
+  } catch (e) {
+    // ignore decode errors on malformed entities
+  }
+
+  // Try to decode percent URL-encoded characters
+  try {
+    trimmed = decodeURIComponent(trimmed);
+  } catch (e) {
+    // ignore decode errors on malformed percent-encodings
+  }
+  
+  // Remove control characters (ASCII 0-32) and other invisible space characters
+  trimmed = trimmed.replace(/[\x00-\x20\u200B\u2028\u2029]/g, '');
+  
+  if (/^(javascript|data|vbscript|file):/i.test(trimmed)) {
+    return 'about:blank';
+  }
+  if (/^[a-z0-9+.-]+:/i.test(trimmed) && !/^(https?|mailto|tel):/i.test(trimmed)) {
+    return 'about:blank';
+  }
+  return trimmed.replace(/"/g, '%22').replace(/'/g, '%27');
+}
+
+function escapeHtml(str) {
+  return String(str ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function parseInlineMarkdown(str) {
+  let html = escapeHtml(str);
+  html = html.replace(/!\[(.*?)\]\((.*?)\)/g, (match, alt, url) => {
+    return `<img src="${sanitizeUrl(url)}" alt="${alt}">`;
+  });
+  html = html.replace(/\[(.*?)\]\((.*?)\)/g, (match, text, url) => {
+    return `<a href="${sanitizeUrl(url)}">${text}</a>`;
+  });
+  html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/__(.*?)__/g, '<strong>$1</strong>');
+  html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
+  html = html.replace(/_(.*?)_/g, '<em>$1</em>');
+  html = html.replace(/`(.*?)`/g, '<code>$1</code>');
+  return html;
+}
+
+function htmlToMarkdown(html) {
+  if (!html) return '';
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(html, 'text/html');
+  let markdown = nodeToMarkdown(doc.body);
+  markdown = markdown.replace(/\n{3,}/g, '\n\n');
+  return markdown.trim();
+}
+
+function nodeToMarkdown(node) {
+  let result = '';
+  if (node.nodeType === Node.TEXT_NODE) {
+    return node.nodeValue;
+  }
+  if (node.nodeType !== Node.ELEMENT_NODE) {
+    return '';
+  }
+  const tagName = node.tagName.toLowerCase();
+  let childrenMarkdown = '';
+  for (let child of node.childNodes) {
+    childrenMarkdown += nodeToMarkdown(child);
+  }
+  
+  switch (tagName) {
+    case 'h1':
+    case 'h2':
+    case 'h3':
+    case 'h4':
+    case 'h5':
+    case 'h6': {
+      const level = parseInt(tagName.charAt(1), 10);
+      result = '\n\n' + '#'.repeat(level) + ' ' + childrenMarkdown.trim() + '\n\n';
+      break;
+    }
+    case 'p':
+      result = '\n\n' + childrenMarkdown.trim() + '\n\n';
+      break;
+    case 'strong':
+    case 'b':
+      result = '**' + childrenMarkdown + '**';
+      break;
+    case 'em':
+    case 'i':
+      result = '*' + childrenMarkdown + '*';
+      break;
+    case 'code':
+      result = '`' + childrenMarkdown + '`';
+      break;
+    case 'a': {
+      const href = node.getAttribute('href') || '';
+      result = '[' + childrenMarkdown + '](' + href + ')';
+      break;
+    }
+    case 'img': {
+      const src = node.getAttribute('src') || '';
+      const alt = node.getAttribute('alt') || '';
+      result = '![' + alt + '](' + src + ')';
+      break;
+    }
+    case 'ul':
+      result = '\n\n' + childrenMarkdown + '\n\n';
+      break;
+    case 'ol': {
+      let olResult = '\n\n';
+      let index = 1;
+      for (let child of node.childNodes) {
+        if (child.nodeType === Node.ELEMENT_NODE && child.tagName.toLowerCase() === 'li') {
+          const itemMd = nodeToMarkdown(child).trim();
+          olResult += `${index}. ${itemMd}\n`;
+          index++;
+        }
+      }
+      result = olResult + '\n';
+      break;
+    }
+    case 'li': {
+      const parent = node.parentNode;
+      if (parent && parent.tagName.toLowerCase() === 'ol') {
+        result = childrenMarkdown;
+      } else {
+        result = '* ' + childrenMarkdown.trim() + '\n';
+      }
+      break;
+    }
+    case 'blockquote':
+      result = '\n\n' + childrenMarkdown.trim().split('\n').map(line => '> ' + line).join('\n') + '\n\n';
+      break;
+    case 'pre': {
+      const codeEl = node.querySelector('code');
+      if (codeEl) {
+        result = '\n\n```\n' + codeEl.textContent + '\n```\n\n';
+      } else {
+        result = '\n\n```\n' + node.textContent + '\n```\n\n';
+      }
+      break;
+    }
+    case 'br':
+      result = '\n';
+      break;
+    case 'div':
+      result = '\n' + childrenMarkdown + '\n';
+      break;
+    default:
+      result = childrenMarkdown;
+      break;
+  }
+  return result;
+}
+
 function getAdminPath() {
+  if (window.__MODERN_EDITOR_ADMIN_PATH__) {
+    return window.__MODERN_EDITOR_ADMIN_PATH__;
+  }
   if (window.GravAdmin?.config?.base_url_relative) {
     return window.GravAdmin.config.base_url_relative;
   }
