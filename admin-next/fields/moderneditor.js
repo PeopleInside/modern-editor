@@ -247,6 +247,7 @@ class TinyMCEField extends HTMLElement {
 
   set value(v) {
     const newVal = v ?? '';
+    if (this._value === newVal) return;
     this._value = newVal;
     if (this._editor && this._ready) {
       const currentMarkdown = convertHtmlToMarkdown(this._editor.getContent());
@@ -482,8 +483,8 @@ class TinyMCEField extends HTMLElement {
       loadMarkdownLibraries()
     ]).then(() => {
       ensureBaseUrl(editorUrl);
-      this._value = markdown;
       this._initEditor(isDarkMode);
+      this._value = markdown;
     });
   }
 }
