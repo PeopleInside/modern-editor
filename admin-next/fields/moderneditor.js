@@ -18,6 +18,72 @@ const TAG = window.__GRAV_FIELD_TAG;
 const TINYMCE_CDN = 'https://cdn.jsdelivr.net/npm/tinymce@7/tinymce.min.js';
 const TINYMCE_CDN_HOSTS = ['cdn.jsdelivr.net', 'tiny.cloud', 'cdnjs.cloudflare.com'];
 
+function getLocalPrefix() {
+  const scriptEl = document.querySelector('script[src*="moderneditor.js"]');
+  if (scriptEl) {
+    const src = scriptEl.getAttribute('src') || '';
+    const idx = src.indexOf('/admin-next/fields/moderneditor.js');
+    if (idx !== -1) {
+      return src.substring(0, idx);
+    }
+  }
+  return '';
+}
+
+function loadScript(url, globalName) {
+  if (window[globalName]) {
+    return Promise.resolve(window[globalName]);
+  }
+  const loadingKey = '__LOADING_' + globalName + '__';
+  if (window[loadingKey]) {
+    return window[loadingKey];
+  }
+  window[loadingKey] = new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = url;
+    script.onload = () => resolve(window[globalName]);
+    script.onerror = () => reject(new Error('Failed to load ' + globalName));
+    document.head.appendChild(script);
+  });
+  return window[loadingKey];
+}
+
+function loadMarkdownLibraries() {
+  const localPrefix = getLocalPrefix();
+  const markedUrl = localPrefix ? localPrefix + '/admin-next/fields/lib/marked.min.js' : 'https://cdn.jsdelivr.net/npm/marked@12.0.1/marked.min.js';
+  const turndownUrl = localPrefix ? localPrefix + '/admin-next/fields/lib/turndown.js' : 'https://cdn.jsdelivr.net/npm/turndown@7.1.3/dist/turndown.min.js';
+
+  return Promise.all([
+    loadScript(markedUrl, 'marked'),
+    loadScript(turndownUrl, 'TurndownService')
+  ]);
+}
+
+function convertMarkdownToHtml(markdown) {
+  if (window.marked) {
+    if (typeof window.marked.parse === 'function') {
+      return window.marked.parse(markdown);
+    }
+    if (typeof window.marked === 'function') {
+      return window.marked(markdown);
+    }
+  }
+  return markdown;
+}
+
+function convertHtmlToMarkdown(html) {
+  if (window.TurndownService) {
+    const turndownService = new window.TurndownService({
+      headingStyle: 'atx',
+      hr: '---',
+      bulletListMarker: '-',
+      codeBlockStyle: 'fenced'
+    });
+    return turndownService.turndown(html);
+  }
+  return html;
+}
+
 function isTrustedTinyMceCdnUrl(url) {
   try {
     const parsed = new URL(url, window.location.href);
@@ -127,15 +193,7 @@ async function fetchConfig() {
 
 function getEditorUrl(field) {
   // 1. Detect the dynamic plugin root path via the script tag of moderneditor.js
-  let localPrefix = '';
-  const scriptEl = document.querySelector('script[src*="moderneditor.js"]');
-  if (scriptEl) {
-    const src = scriptEl.getAttribute('src') || '';
-    const idx = src.indexOf('/admin-next/fields/moderneditor.js');
-    if (idx !== -1) {
-      localPrefix = src.substring(0, idx);
-    }
-  }
+  const localPrefix = getLocalPrefix();
 
   // 2. Check the configured editor URL from the blueprint / global variable
   const configUrl = window.__MODERN_EDITOR_URL__ || field?.editor_url || '';
@@ -191,16 +249,19 @@ class TinyMCEField extends HTMLElement {
     const newVal = v ?? '';
     this._value = newVal;
     if (this._editor && this._ready) {
-      const current = this._editor.getContent();
-      if (current !== newVal) {
+      const currentMarkdown = convertHtmlToMarkdown(this._editor.getContent());
+      if (currentMarkdown !== newVal) {
         this._applying = true;
-        this._editor.setContent(newVal);
+        this._editor.setContent(convertMarkdownToHtml(newVal));
         this._applying = false;
       }
     }
   }
 
   get value() {
+    if (this._editor && this._ready) {
+      return convertHtmlToMarkdown(this._editor.getContent());
+    }
     return this._value;
   }
 
@@ -257,7 +318,10 @@ class TinyMCEField extends HTMLElement {
 
     const url = getEditorUrl(this._field);
 
-    loadTinyMCE(url)
+    Promise.all([
+      loadTinyMCE(url),
+      loadMarkdownLibraries()
+    ])
       .then(() => {
         ensureBaseUrl(url);
         this._initEditor(isDarkMode);
@@ -374,14 +438,15 @@ class TinyMCEField extends HTMLElement {
         editor.on('init', () => {
           this._editor = editor;
           this._ready = true;
-          editor.setContent(this._value || '');
+          editor.setContent(convertMarkdownToHtml(this._value || ''));
         });
         editor.on('change keyup undo redo', () => {
           if (this._applying) return;
           const html = editor.getContent();
-          this._value = html;
+          const markdown = convertHtmlToMarkdown(html);
+          this._value = markdown;
           this.dispatchEvent(new CustomEvent('change', {
-            detail: html,
+            detail: markdown,
             bubbles: true,
           }));
         });
@@ -407,15 +472,18 @@ class TinyMCEField extends HTMLElement {
     const current = JSON.stringify({ ...this._cfg(), isDarkMode, editor_url: editorUrl });
     if (this._lastCfg === current) return;
     this._lastCfg = current;
-    const html = this._editor.getContent();
+    const markdown = convertHtmlToMarkdown(this._editor.getContent());
     this._editor.remove();
     this._ready = false;
     this._renderShell(isDarkMode);
     
-    loadTinyMCE(editorUrl).then(() => {
+    Promise.all([
+      loadTinyMCE(editorUrl),
+      loadMarkdownLibraries()
+    ]).then(() => {
       ensureBaseUrl(editorUrl);
+      this._value = markdown;
       this._initEditor(isDarkMode);
-      this._value = html;
     });
   }
 }
