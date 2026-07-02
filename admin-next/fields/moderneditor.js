@@ -97,7 +97,7 @@ function markdownToHtml(markdown) {
     if (headingMatch) {
       closeList();
       const level = headingMatch[1].length;
-      const content = parseInlineMarkdown(headingMatch[2]);
+      const content = parseInlineMarkdown(escapeHtml(headingMatch[2]));
       htmlBlocks.push(`<h${level}>${content}</h${level}>`);
       continue;
     }
@@ -128,11 +128,11 @@ function markdownToHtml(markdown) {
         let itemTrimmed = line.trim();
         const itemMatch = isOl ? itemTrimmed.match(/^\d+\.\s+(.*)$/) : itemTrimmed.match(/^[\*\-\+]\s+(.*)$/);
         if (itemMatch) {
-          htmlBlocks.push(`<li>${parseInlineMarkdown(itemMatch[1])}</li>`);
+          htmlBlocks.push(`<li>${parseInlineMarkdown(escapeHtml(itemMatch[1]))}</li>`);
         } else if (itemTrimmed) {
           const lastIdx = htmlBlocks.length - 1;
           if (lastIdx >= 0 && htmlBlocks[lastIdx].endsWith('</li>')) {
-            htmlBlocks[lastIdx] = htmlBlocks[lastIdx].slice(0, -5) + ' ' + parseInlineMarkdown(itemTrimmed) + '</li>';
+            htmlBlocks[lastIdx] = htmlBlocks[lastIdx].slice(0, -5) + ' ' + parseInlineMarkdown(escapeHtml(itemTrimmed)) + '</li>';
           }
         }
       }
@@ -149,7 +149,7 @@ function markdownToHtml(markdown) {
     }
     
     closeList();
-    const content = trimmed.split('\n').map(line => parseInlineMarkdown(line.trim())).join('<br>');
+    const content = trimmed.split('\n').map(line => parseInlineMarkdown(escapeHtml(line.trim()))).join('<br>');
     htmlBlocks.push(`<p>${content}</p>`);
   }
   
@@ -158,14 +158,24 @@ function markdownToHtml(markdown) {
 }
 
 function sanitizeUrl(url) {
-  const trimmed = (url || '').trim();
+  let trimmed = (url || '').trim();
+  
+  try {
+    trimmed = decodeURIComponent(trimmed);
+  } catch (e) {
+    // ignore decode errors
+  }
+  
+  // Remove spaces, tabs, newlines, control characters and invisible characters
+  trimmed = trimmed.replace(/[\x00-\x20\s\t\n\r\u200B\u2028\u2029]/g, '');
+  
   if (/^(javascript|data|vbscript|file):/i.test(trimmed)) {
     return 'about:blank';
   }
   if (/^[a-z0-9+.-]+:/i.test(trimmed) && !/^(https?|mailto|tel):/i.test(trimmed)) {
     return 'about:blank';
   }
-  return trimmed;
+  return (url || '').trim().replace(/"/g, '%22').replace(/'/g, '%27');
 }
 
 function escapeHtml(str) {
@@ -180,10 +190,10 @@ function escapeHtml(str) {
 function parseInlineMarkdown(str) {
   let html = str;
   html = html.replace(/!\[(.*?)\]\((.*?)\)/g, (match, alt, url) => {
-    return `<img src="${escapeHtml(sanitizeUrl(url))}" alt="${escapeHtml(alt)}">`;
+    return `<img src="${sanitizeUrl(url)}" alt="${alt}">`;
   });
   html = html.replace(/\[(.*?)\]\((.*?)\)/g, (match, text, url) => {
-    return `<a href="${escapeHtml(sanitizeUrl(url))}">${escapeHtml(text)}</a>`;
+    return `<a href="${sanitizeUrl(url)}">${text}</a>`;
   });
   html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
   html = html.replace(/__(.*?)__/g, '<strong>$1</strong>');
