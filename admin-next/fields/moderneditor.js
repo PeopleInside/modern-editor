@@ -75,8 +75,8 @@ function loadTinyMCE(url) {
 function markdownToHtml(markdown) {
   if (!markdown) return '';
   
-  let txt = markdown.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-  const blocks = txt.split(/\n{2,}/);
+  let normalizedText = markdown.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  const blocks = normalizedText.split(/\n{2,}/);
   const htmlBlocks = [];
   let inList = false;
   let listType = '';
@@ -109,8 +109,8 @@ function markdownToHtml(markdown) {
       continue;
     }
     
-    const ulMatch = trimmed.match(/^[\*\-\+]\s+(.*)$/m);
-    const olMatch = trimmed.match(/^\d+\.\s+(.*)$/m);
+    const ulMatch = trimmed.match(/^[\*\-\+]\s+(.*)$/);
+    const olMatch = trimmed.match(/^\d+\.\s+(.*)$/);
     
     if (ulMatch || olMatch) {
       const isOl = !!olMatch;
@@ -157,16 +157,33 @@ function markdownToHtml(markdown) {
   return htmlBlocks.join('\n');
 }
 
+function sanitizeUrl(url) {
+  const trimmed = (url || '').trim();
+  if (trimmed.toLowerCase().startsWith('javascript:')) {
+    return 'about:blank';
+  }
+  return trimmed;
+}
+
 function escapeHtml(str) {
-  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return String(str ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 function parseInlineMarkdown(str) {
   let html = str;
-  html = html.replace(/!\[(.*?)\]\((.*?)\)/g, '<img src="$2" alt="$1">');
-  html = html.replace(/\[(.*?)\]\((.*?)\)/g, '<a href="$2">$1</a>');
+  html = html.replace(/!\[(.*?)\]\((.*?)\)/g, (match, alt, url) => {
+    return `<img src="${escapeHtml(sanitizeUrl(url))}" alt="${escapeHtml(alt)}">`;
+  });
+  html = html.replace(/\[(.*?)\]\((.*?)\)/g, (match, text, url) => {
+    return `<a href="${escapeHtml(sanitizeUrl(url))}">${text}</a>`;
+  });
   html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-  html = html.replace(/__(.*?)__/g, '<strong>$1</strong>');
+  html = html.replace(/__/g, '<strong>$1</strong>');
   html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
   html = html.replace(/_(.*?)_/g, '<em>$1</em>');
   html = html.replace(/`(.*?)`/g, '<code>$1</code>');
@@ -260,13 +277,15 @@ function nodeToMarkdown(node) {
     case 'blockquote':
       result = '\n\n' + childrenMarkdown.trim().split('\n').map(line => '> ' + line).join('\n') + '\n\n';
       break;
-    case 'pre':
-      if (node.querySelector('code')) {
-        result = '\n\n```\n' + node.querySelector('code').textContent + '\n```\n\n';
+    case 'pre': {
+      const codeEl = node.querySelector('code');
+      if (codeEl) {
+        result = '\n\n```\n' + codeEl.textContent + '\n```\n\n';
       } else {
         result = '\n\n```\n' + node.textContent + '\n```\n\n';
       }
       break;
+    }
     case 'br':
       result = '\n';
       break;

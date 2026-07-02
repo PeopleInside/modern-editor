@@ -38,7 +38,10 @@ class ModernEditorPlugin extends Plugin
 
     private function getAdminRoute(): string
     {
-        $adminRoute = $this->config->get('plugins.admin.route', '/admin');
+        $adminRoute = trim((string) $this->config->get('plugins.admin.route', '/admin'));
+        if ($adminRoute === '') {
+            $adminRoute = '/admin';
+        }
         return '/' . ltrim($adminRoute, '/');
     }
 
