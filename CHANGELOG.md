@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.1.9
+- Fixed custom admin paths and dynamic route detection for all admin panels (e.g. `/grav-admin`, `/panel`, `/control`).
+- Resolved non-JSON/HTML redirect responses gracefully to prevent `SyntaxError: Unexpected token <` in browser console.
+- Robust URL suffix matching fallback inside field Web Components.
+
 ## v1.1.8
 - Security fix
 

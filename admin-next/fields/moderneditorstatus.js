@@ -15,26 +15,42 @@
 
 const TAG = window.__GRAV_FIELD_TAG;
 
-function getAdminPath() {
-  if (window.GravAdmin?.config?.base_url_relative) {
-    return window.GravAdmin.config.base_url_relative;
+// Builds the URL for a plugin AJAX action by reusing the CURRENT page URL
+// and just adding/overwriting the `action` query param. This works no
+// matter what the admin route is called (default "admin" or a custom
+// one), because the PHP handler only checks isAdmin() + the `action`
+// param — it doesn't require any specific path. Reconstructing the admin
+// base path from config/heuristics was fragile and broke silently
+// whenever the admin route was customized, leaving the status card stuck
+// on "Loading status..." forever.
+// Requests a plugin action, preferring the real Grav 2.0 / Admin2 REST
+// API (window.__GRAV_API_SERVER_URL + __GRAV_API_PREFIX, authenticated
+// via X-API-Token — not Authorization: Bearer, which FastCGI/PHP-FPM can
+// silently strip). Admin2 is a decoupled SPA served by its own thin
+// wrapper that returns the same shell HTML for any /panel/* sub-route, so
+// appending ?action=... to the current admin URL never reached our PHP
+// under Admin2 — that only ever worked under classic Grav 1.x admin,
+// which is kept here as a fallback.
+function apiRequest(path, classicAction, options) {
+  const method = (options && options.method) || 'GET';
+  const body = options && options.body;
+
+  if (window.__GRAV_API_SERVER_URL && window.__GRAV_API_PREFIX) {
+    const url = window.__GRAV_API_SERVER_URL + window.__GRAV_API_PREFIX + path;
+    const headers = window.__GRAV_API_TOKEN ? { 'X-API-Token': window.__GRAV_API_TOKEN } : {};
+    const init = { method, headers };
+    if (body) {
+      init.headers = { ...headers, 'Content-Type': 'application/json' };
+      init.body = JSON.stringify(body);
+    }
+    return fetch(url, init).then(r => ({ res: r, url }));
   }
-  if (window.GravAdmin?.config?.base_url) {
-    return window.GravAdmin.config.base_url;
+  const url = new URL(window.location.href);
+  url.searchParams.set('action', classicAction);
+  if (body && body.version) {
+    url.searchParams.set('version', body.version);
   }
-  if (window.Grav?.config?.base_url_relative) {
-    return window.Grav.config.base_url_relative;
-  }
-  if (window.Grav?.config?.base_url) {
-    return window.Grav.config.base_url;
-  }
-  
-  const pathname = window.location.pathname;
-  const adminIdx = pathname.indexOf('/admin');
-  if (adminIdx !== -1) {
-    return pathname.substring(0, adminIdx + 6);
-  }
-  return '/admin';
+  return fetch(url.toString()).then(r => ({ res: r, url: url.toString() }));
 }
 
 class ModernEditorStatusField extends HTMLElement {
@@ -111,7 +127,7 @@ class ModernEditorStatusField extends HTMLElement {
     this._bootstrapped = true;
 
     // Show initial loading placeholder if never fetched or if forced loading is visible
-    if (!this._field || !this._field.content) {
+    if (!this._statusHtml) {
       const isIt = document.documentElement.lang === 'it' || window.navigator.language.startsWith('it');
       this.innerHTML = `<div style="font-size: 13px; color: #6b7280; font-style: italic; padding: 12px 0;">${isIt ? 'Caricamento stato...' : 'Loading status...'}</div>`;
     }
@@ -124,32 +140,41 @@ class ModernEditorStatusField extends HTMLElement {
     if (this._isFetching) return;
     this._isFetching = true;
 
-    const adminPath = getAdminPath();
-    const cleanAdminPath = adminPath.endsWith('/') ? adminPath.slice(0, -1) : adminPath;
-    const url = cleanAdminPath + '/plugins/modern-editor?action=get_status';
-
     try {
-      const response = await fetch(url);
-      if (response.ok) {
-        const data = await response.json();
-        if (this._field) {
-          this._field.content = data.html || '';
+      const { res, url } = await apiRequest('/modern-editor/status', 'get_status');
+      if (res.ok) {
+        const contentType = res.headers.get('content-type') || '';
+        if (contentType.includes('application/json')) {
+          const body = await res.json();
+          // The Grav 2.0 API wraps payloads as {"data": {...}}; the
+          // legacy classic-admin fallback returns the object directly.
+          const data = body && typeof body === 'object' && 'data' in body ? body.data : body;
+          // Stored independently of this._field: the Admin Next framework
+          // does not reliably keep calling the `field` setter, so relying
+          // on this._field.content left the status card stuck on
+          // "Loading status..." forever even though the fetch succeeded.
+          this._statusHtml = data.html || this._statusHtml || '';
+          this._lastFetchTime = Date.now();
+        } else {
+          console.warn('Modern Editor: get_status returned a non-JSON response.', url);
         }
-        this._lastFetchTime = Date.now();
+      } else {
+        console.warn(`Modern Editor: get_status request failed (HTTP ${res.status}).`, url);
       }
     } catch (err) {
-      console.error('Failed to fetch Modern Editor status:', err);
+      console.warn('Modern Editor: get_status request errored.', err);
     } finally {
       this._isFetching = false;
     }
   }
 
   _render() {
-    if (!this._field || !this._field.content) {
+    const html = this._statusHtml || this._field?.content;
+    if (!html) {
       // Keep loading placeholder if still fetching, or show empty
       return;
     }
-    this.innerHTML = this._field.content;
+    this.innerHTML = html;
     this._bindEvents();
   }
 
@@ -162,6 +187,18 @@ class ModernEditorStatusField extends HTMLElement {
         e.preventDefault();
         const url = btn.getAttribute('href');
         if (!url) return;
+
+        let apiPath = null;
+        let classicAction = null;
+        let apiVersion = null;
+        try {
+          const parsed = new URL(url, window.location.href);
+          classicAction = parsed.searchParams.get('action');
+          apiVersion = parsed.searchParams.get('version');
+          if (classicAction === 'download_tinymce') apiPath = '/modern-editor/download';
+          else if (classicAction === 'check_updates') apiPath = '/modern-editor/check-updates';
+          else if (classicAction === 'remove_tinymce_local') apiPath = '/modern-editor/remove';
+        } catch (e) { /* fall through to plain fetch below */ }
 
         const originalText = btn.innerHTML;
         const originalTextContent = btn.textContent;
@@ -178,24 +215,26 @@ class ModernEditorStatusField extends HTMLElement {
         btn.style.pointerEvents = 'none';
         btn.style.opacity = '0.75';
 
-        const ajaxUrl = url + (url.indexOf('?') !== -1 ? '&ajax=1' : '?ajax=1');
+        // apiRequest() picks the real Grav 2.0 API when available (POST,
+        // with the version in the JSON body), or falls back to the
+        // classic ?action=...&ajax=1 URL for Grav 1.x classic admin.
+        const request = apiPath
+          ? apiRequest(apiPath, classicAction, { method: 'POST', body: apiVersion ? { version: apiVersion } : undefined })
+          : fetch(url + (url.indexOf('?') !== -1 ? '&ajax=1' : '?ajax=1')).then(r => ({ res: r, url }));
 
-        fetch(ajaxUrl)
-          .then(response => {
-            if (!response.ok) throw new Error('HTTP error ' + response.status);
-            return response.json();
+        request
+          .then(({ res }) => {
+            if (!res.ok) throw new Error('HTTP error ' + res.status);
+            return res.json();
           })
-          .then(data => {
+          .then(body => {
+            const data = body && typeof body === 'object' && 'data' in body ? body.data : body;
             if (data.message) {
               alert(data.message);
             }
             if (data.html) {
-              if (this._field) {
-                this._field.content = data.html;
-                this._render();
-              } else {
-                window.location.reload();
-              }
+              this._statusHtml = data.html;
+              this._render();
             } else {
               window.location.reload();
             }

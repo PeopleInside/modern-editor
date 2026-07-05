@@ -36,6 +36,15 @@ class ModernEditorPlugin extends Plugin
     /** @var string Path (stream) where the override blueprints are generated */
     protected $generatedPath = 'cache://modern-editor/blueprints/pages';
 
+    /*
+     * Required so Grav can find ModernEditorApiController (classes/ dir),
+     * used by the Grav 2.0 / Admin2 REST API integration below.
+     */
+    public function autoload(): \Composer\Autoload\ClassLoader
+    {
+        return require __DIR__ . '/vendor/autoload.php';
+    }
+
     public static function getSubscribedEvents(): array
     {
         return [
@@ -54,7 +63,31 @@ class ModernEditorPlugin extends Plugin
             'onBlueprintCreated' => ['onBlueprintCreated', 0],
             'onAssetsInitialized' => ['onAssetsInitialized', 0],
             'onPagesInitialized' => ['onPagesInitialized', 100000],
+            // Grav 2.0 / Admin2: real REST endpoints. This is the correct
+            // replacement for the old ?action=get_status/get_config query
+            // params, which never reach PHP under Admin2 (it's a decoupled
+            // SPA served by its own thin wrapper — see onApiRegisterRoutes()).
+            'onApiRegisterRoutes' => ['onApiRegisterRoutes', 0],
         ]);
+    }
+
+    /*
+     * Registers /modern-editor/status and /modern-editor/config on the
+     * Grav API plugin (Grav 2.0+ / Admin2), if that plugin is installed.
+     * On Grav 1.x (classic admin, no API plugin), this event simply never
+     * fires, and the classic onPagesInitialized ?action= handler below
+     * keeps serving those requests instead.
+     */
+    public function onApiRegisterRoutes(Event $event): void
+    {
+        $routes = $event['routes'];
+        $controller = \Grav\Plugin\ModernEditor\ModernEditorApiController::class;
+
+        $routes->get('/modern-editor/status', [$controller, 'status']);
+        $routes->get('/modern-editor/config', [$controller, 'config']);
+        $routes->post('/modern-editor/download', [$controller, 'download']);
+        $routes->post('/modern-editor/check-updates', [$controller, 'checkUpdates']);
+        $routes->post('/modern-editor/remove', [$controller, 'remove']);
     }
 
     /*
@@ -62,7 +95,7 @@ class ModernEditorPlugin extends Plugin
      */
     public function onPagesInitialized(): void
     {
-        if (!$this->isAdmin()) {
+        if (!$this->isAdminContext()) {
             return;
         }
 
@@ -104,7 +137,7 @@ class ModernEditorPlugin extends Plugin
                     $isAuthorized = true;
                 }
             }
-            if (!$isAuthorized && $this->isAdmin()) {
+            if (!$isAuthorized && $this->isAdminContext()) {
                 $isAuthorized = true;
             }
 
@@ -149,7 +182,7 @@ class ModernEditorPlugin extends Plugin
                     }
                 }
 
-                $this->grav->redirect($this->grav['base_url_relative'] . '/admin/plugins/modern-editor');
+                $this->grav->redirect($this->getAdminBaseUrl() . '/plugins/modern-editor');
             } else {
                 if ($isAjax) {
                     header('Content-Type: application/json');
@@ -181,7 +214,7 @@ class ModernEditorPlugin extends Plugin
                     $isAuthorized = true;
                 }
             }
-            if (!$isAuthorized && $this->isAdmin()) {
+            if (!$isAuthorized && $this->isAdminContext()) {
                 $isAuthorized = true;
             }
 
@@ -240,7 +273,7 @@ class ModernEditorPlugin extends Plugin
                     }
                 }
 
-                $this->grav->redirect($this->grav['base_url_relative'] . '/admin/plugins/modern-editor');
+                $this->grav->redirect($this->getAdminBaseUrl() . '/plugins/modern-editor');
             } else {
                 if ($isAjax) {
                     header('Content-Type: application/json');
@@ -272,7 +305,7 @@ class ModernEditorPlugin extends Plugin
                     $isAuthorized = true;
                 }
             }
-            if (!$isAuthorized && $this->isAdmin()) {
+            if (!$isAuthorized && $this->isAdminContext()) {
                 $isAuthorized = true;
             }
 
@@ -306,7 +339,7 @@ class ModernEditorPlugin extends Plugin
                     $this->grav['messages']->add("Offline TinyMCE files have been successfully removed!", 'info');
                 }
 
-                $this->grav->redirect($this->grav['base_url_relative'] . '/admin/plugins/modern-editor');
+                $this->grav->redirect($this->getAdminBaseUrl() . '/plugins/modern-editor');
             } else {
                 if ($isAjax) {
                     header('Content-Type: application/json');
@@ -338,7 +371,7 @@ class ModernEditorPlugin extends Plugin
                     $isAuthorized = true;
                 }
             }
-            if (!$isAuthorized && $this->isAdmin()) {
+            if (!$isAuthorized && $this->isAdminContext()) {
                 $isAuthorized = true;
             }
 
@@ -371,7 +404,7 @@ class ModernEditorPlugin extends Plugin
                     $isAuthorized = true;
                 }
             }
-            if (!$isAuthorized && $this->isAdmin()) {
+            if (!$isAuthorized && $this->isAdminContext()) {
                 $isAuthorized = true;
             }
 
@@ -395,7 +428,7 @@ class ModernEditorPlugin extends Plugin
                     $latestVersion = $this->grav['session']->modern_editor_latest_version ?? null;
                 }
 
-                $adminBase = $this->grav['base_url_relative'] . '/admin/plugins/modern-editor';
+                $adminBase = $this->getAdminBaseUrl() . '/plugins/modern-editor';
 
                 header('Content-Type: application/json');
                 header('Cache-Control: no-cache, no-store, must-revalidate');
@@ -666,7 +699,136 @@ YAML;
     /*
      * Determines current local status HTML to display in the plugin admin panel.
      */
-    private function getLocalStatusHtml(): string
+    public function downloadTinyMceAction(string $version): array
+    {
+        if (!preg_match('/^[0-9]+\.[0-9]+\.[0-9]+$/', $version)) {
+            $version = '7.4.0';
+        }
+
+        $success = $this->downloadAndExtractTinyMCE($version);
+
+        if ($success && isset($this->grav['session'])) {
+            $this->grav['session']->modern_editor_latest_version = null;
+        }
+
+        $lang = isset($this->grav['language']) ? ($this->grav['language']->getActive() ?: 'en') : 'en';
+
+        return [
+            'status' => $success ? 'success' : 'error',
+            'message' => $success
+                ? ($lang === 'it' ? "TinyMCE v{$version} è stato scaricato ed estratto con successo localmente!" : "TinyMCE v{$version} has been successfully downloaded and extracted locally!")
+                : ($lang === 'it' ? "Impossibile scaricare TinyMCE v{$version}. Controlla i dettagli dell'errore." : "Failed to download TinyMCE v{$version}. Check error details."),
+            'html' => $this->getLocalStatusHtml()
+        ];
+    }
+
+    public function checkUpdatesAction(): array
+    {
+        $lang = isset($this->grav['language']) ? ($this->grav['language']->getActive() ?: 'en') : 'en';
+        $latestVersion = $this->fetchLatestTinyMCEVersion();
+        $pluginDir = $this->grav['locator']->findResource('plugin://' . $this->name, true, true);
+        $localJs = $pluginDir . '/assets/tinymce/tinymce.min.js';
+        $versionFile = $pluginDir . '/assets/tinymce/.version';
+        $isInstalled = file_exists($localJs);
+        $installedVersion = $isInstalled && file_exists($versionFile) ? trim((string) @file_get_contents($versionFile)) : null;
+
+        if ($latestVersion) {
+            if (isset($this->grav['session'])) {
+                $this->grav['session']->modern_editor_latest_version = $latestVersion;
+            }
+
+            if ($installedVersion === $latestVersion) {
+                $msg = $lang === 'it'
+                    ? "La versione locale di TinyMCE è già aggiornata alla versione più recente: v{$installedVersion}!"
+                    : "The local version of TinyMCE is already updated to the latest version: v{$installedVersion}!";
+            } else {
+                $msg = $lang === 'it'
+                    ? "È disponibile un aggiornamento! Nuova versione: v{$latestVersion}. Usa il pulsante nella scheda di stato per scaricarla."
+                    : "An update is available! New version: v{$latestVersion}. Use the button in the status card to download it.";
+            }
+            $status = 'success';
+        } else {
+            $msg = $lang === 'it'
+                ? "Impossibile verificare gli aggiornamenti di TinyMCE in questo momento."
+                : "Unable to check for TinyMCE updates at this moment.";
+            $status = 'error';
+        }
+
+        return ['status' => $status, 'message' => $msg, 'html' => $this->getLocalStatusHtml()];
+    }
+
+    public function removeTinyMceLocalAction(): array
+    {
+        $lang = isset($this->grav['language']) ? ($this->grav['language']->getActive() ?: 'en') : 'en';
+        $pluginDir = $this->grav['locator']->findResource('plugin://' . $this->name, true, true);
+        $targetDir = $pluginDir . '/assets/tinymce';
+        $errorFile = $pluginDir . '/.download-error';
+
+        if (file_exists($errorFile)) {
+            @unlink($errorFile);
+        }
+
+        if (is_dir($targetDir)) {
+            $this->recursiveRmdir($targetDir);
+        }
+
+        return [
+            'status' => 'success',
+            'message' => $lang === 'it' ? "I file offline di TinyMCE sono stati rimossi con successo!" : "Offline TinyMCE files have been successfully removed!",
+            'html' => $this->getLocalStatusHtml()
+        ];
+    }
+
+    public function getStatusData(): array
+    {
+        $pluginDir = $this->grav['locator']->findResource('plugin://' . $this->name, true, true);
+        $localJs = $pluginDir . '/assets/tinymce/tinymce.min.js';
+        $versionFile = $pluginDir . '/assets/tinymce/.version';
+        $errorFile = $pluginDir . '/assets/tinymce/.error';
+        $isInstalled = file_exists($localJs);
+        $installedVersion = $isInstalled && file_exists($versionFile) ? trim((string) @file_get_contents($versionFile)) : null;
+        $hasError = file_exists($errorFile);
+        $errorMessage = $hasError ? trim((string) @file_get_contents($errorFile)) : '';
+
+        $lang = 'en';
+        if (isset($this->grav['language'])) {
+            $lang = $this->grav['language']->getActive() ?: 'en';
+        }
+
+        $latestVersion = null;
+        if (isset($this->grav['session'])) {
+            $latestVersion = $this->grav['session']->modern_editor_latest_version ?? null;
+        }
+
+        $adminBase = $this->getAdminBaseUrl() . '/plugins/modern-editor';
+
+        return [
+            'is_installed' => $isInstalled,
+            'installed_version' => $installedVersion,
+            'latest_version' => $latestVersion,
+            'has_error' => $hasError,
+            'error_message' => $errorMessage,
+            'lang' => $lang,
+            'check_url' => $adminBase . '?action=check_updates',
+            'reinstall_url' => $adminBase . '?action=download_tinymce&version=7.4.0',
+            'update_url_prefix' => $adminBase . '?action=download_tinymce&version=',
+            'html' => $this->getLocalStatusHtml()
+        ];
+    }
+
+    public function getConfigData(): array
+    {
+        return [
+            'editor_source' => $this->config->get('plugins.modern-editor.editor_source', 'cdn'),
+            'editor_url' => $this->getEditorScriptUrl(),
+            'height' => $this->config->get('plugins.modern-editor.height'),
+            'menubar' => $this->config->get('plugins.modern-editor.menubar'),
+            'plugins' => $this->config->get('plugins.modern-editor.plugins'),
+            'toolbar' => $this->config->get('plugins.modern-editor.toolbar'),
+        ];
+    }
+
+    public function getLocalStatusHtml(): string
     {
         $grav = Grav::instance();
         /** @var \Grav\Common\Filesystem\Locator $locator */
@@ -692,9 +854,10 @@ YAML;
             $latestVersion = $this->grav['session']->modern_editor_latest_version ?? null;
         }
 
-        $checkUrl = $this->grav['base_url_relative'] . '/admin/plugins/modern-editor?action=check_updates';
-        $reinstallUrl = $this->grav['base_url_relative'] . '/admin/plugins/modern-editor?action=download_tinymce&version=7.4.0';
-        $removeUrl = $this->grav['base_url_relative'] . '/admin/plugins/modern-editor?action=remove_tinymce_local';
+        $adminBaseUrl = $this->getAdminBaseUrl() . '/plugins/modern-editor';
+        $checkUrl = $adminBaseUrl . '?action=check_updates';
+        $reinstallUrl = $adminBaseUrl . '?action=download_tinymce&version=7.4.0';
+        $removeUrl = $adminBaseUrl . '?action=remove_tinymce_local';
 
         $editorSource = $this->config->get('plugins.modern-editor.editor_source', 'cdn');
 
@@ -1381,17 +1544,65 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
      */
     public function onAssetsInitialized(): void
     {
-        if (!$this->isAdmin()) {
+        if (!$this->isAdminContext()) {
             return;
         }
 
         $editorUrl = $this->getEditorScriptUrl();
         $this->grav['assets']->addInlineJs("window.__MODERN_EDITOR_URL__ = " . json_encode($editorUrl) . ";");
+
+        $adminBase = $this->getAdminBaseUrl();
+        $this->grav['assets']->addInlineJs("window.__MODERN_EDITOR_ADMIN_BASE__ = " . json_encode($adminBase) . ";");
     }
 
     /*
      * Helper to get the correct editor URL based on configured source.
      */
+    /*
+     * Detects whether the current request is inside the admin panel.
+     * $this->isAdmin() (Grav's own helper) relies on the classic
+     * `$grav['admin']` service being registered, which some decoupled /
+     * SPA-based admin panels (e.g. custom "Admin Next" builds serving
+     * their own REST API under /api/v1/...) never set. Without this,
+     * every check below would silently fail: asset injection would skip,
+     * and the get_config/get_status AJAX actions would never run,
+     * causing the SPA shell HTML to be returned instead of our JSON —
+     * exactly the "non-JSON response" symptom. So we fall back to
+     * matching the current URL path against the configured admin route.
+     */
+    private function isAdminContext(): bool
+    {
+        if ($this->isAdmin()) {
+            return true;
+        }
+
+        $adminRoute = trim((string) $this->config->get('plugins.admin.route', 'admin'), '/');
+        if ($adminRoute === '') {
+            return false;
+        }
+
+        $path = trim((string) ($this->grav['uri']->path() ?? ''), '/');
+        return $path === $adminRoute || str_starts_with($path, $adminRoute . '/');
+    }
+
+    /*
+     * Returns the base URL of the admin panel ("<site>/<admin-route>"),
+     * preferring Grav's own already-computed value ($grav['admin']->base)
+     * which is correct regardless of how/where the admin route was
+     * customized. Falls back to rebuilding it from
+     * plugins.admin.route + base_url_relative only if that's unavailable.
+     */
+    private function getAdminBaseUrl(): string
+    {
+        $admin = $this->grav['admin'] ?? null;
+        if ($admin && isset($admin->base)) {
+            return rtrim((string) $admin->base, '/');
+        }
+
+        $adminRoute = '/' . ltrim($this->config->get('plugins.admin.route', 'admin'), '/');
+        return rtrim($this->grav['base_url_relative'], '/') . $adminRoute;
+    }
+
     public function getEditorScriptUrl(): string
     {
         $editorSource = $this->config->get('plugins.modern-editor.editor_source', 'cdn');
