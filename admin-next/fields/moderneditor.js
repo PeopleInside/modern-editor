@@ -25,6 +25,18 @@ function loadMarkdownLibraries() {
     return markdownLibrariesPromise;
   }
 
+  // window.__MODERN_EDITOR_MD_URLS__ is injected server-side (see
+  // onAssetsInitialized() / getMarkdownLibraryUrls() in modern-editor.php).
+  // When "local" mode is active and the files have been downloaded, this
+  // points at the plugin's own self-hosted copies instead of jsDelivr —
+  // both marked and turndown are MIT licensed, so self-hosting them is
+  // just a matter of avoiding external calls, not a licensing concern.
+  // These fallback constants are only used for CDN mode, or if local mode
+  // is selected but the one-time download hasn't completed/succeeded yet.
+  const mdUrls = window.__MODERN_EDITOR_MD_URLS__ || {};
+  const MARKED_URL = mdUrls.marked || 'https://cdn.jsdelivr.net/npm/marked@12.0.0/lib/marked.umd.js';
+  const TURNDOWN_URL = mdUrls.turndown || 'https://cdn.jsdelivr.net/npm/turndown@7.1.3/dist/turndown.js';
+
   markdownLibrariesPromise = new Promise((resolve) => {
     let loadedCount = 0;
     const totalToLoad = 2;
@@ -41,7 +53,7 @@ function loadMarkdownLibraries() {
       loadedCount++;
     } else {
       const scriptMarked = document.createElement('script');
-      scriptMarked.src = 'https://cdn.jsdelivr.net/npm/marked@12.0.0/lib/marked.umd.js';
+      scriptMarked.src = MARKED_URL;
       scriptMarked.onload = checkDone;
       scriptMarked.onerror = checkDone;
       document.head.appendChild(scriptMarked);
@@ -52,7 +64,7 @@ function loadMarkdownLibraries() {
       loadedCount++;
     } else {
       const scriptTurndown = document.createElement('script');
-      scriptTurndown.src = 'https://cdn.jsdelivr.net/npm/turndown@7.1.3/dist/turndown.js';
+      scriptTurndown.src = TURNDOWN_URL;
       scriptTurndown.onload = checkDone;
       scriptTurndown.onerror = checkDone;
       document.head.appendChild(scriptTurndown);
@@ -216,8 +228,13 @@ function loadTinyMCE(url) {
 // current admin page URL never reached our PHP at all under Admin2 — it
 // only ever worked under classic Grav 1.x admin, kept here as a fallback.
 function apiRequest(path, classicAction) {
-  if (window.__GRAV_API_SERVER_URL && window.__GRAV_API_PREFIX) {
-    const url = window.__GRAV_API_SERVER_URL + window.__GRAV_API_PREFIX + path;
+  // __GRAV_API_PREFIX is the real signal that Admin2's API is present.
+  // __GRAV_API_SERVER_URL can legitimately be "" (meaning "same origin as
+  // the current page"), which is falsy in JS — checking `&&` on it wrongly
+  // treated a same-origin API as "not available" and silently fell back
+  // to the broken classic ?action= mechanism (returns the SPA's HTML).
+  if (window.__GRAV_API_PREFIX !== undefined && window.__GRAV_API_PREFIX !== null) {
+    const url = (window.__GRAV_API_SERVER_URL || '') + window.__GRAV_API_PREFIX + path;
     const headers = window.__GRAV_API_TOKEN ? { 'X-API-Token': window.__GRAV_API_TOKEN } : {};
     return fetch(url, { headers }).then(r => ({ res: r, url }));
   }

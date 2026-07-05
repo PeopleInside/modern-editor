@@ -35,8 +35,13 @@ function apiRequest(path, classicAction, options) {
   const method = (options && options.method) || 'GET';
   const body = options && options.body;
 
-  if (window.__GRAV_API_SERVER_URL && window.__GRAV_API_PREFIX) {
-    const url = window.__GRAV_API_SERVER_URL + window.__GRAV_API_PREFIX + path;
+  // __GRAV_API_PREFIX is the real signal that Admin2's API is present.
+  // __GRAV_API_SERVER_URL can legitimately be "" (meaning "same origin as
+  // the current page"), which is falsy in JS — checking `&&` on it wrongly
+  // treated a same-origin API as "not available" and silently fell back
+  // to the broken classic ?action= mechanism (returns the SPA's HTML).
+  if (window.__GRAV_API_PREFIX !== undefined && window.__GRAV_API_PREFIX !== null) {
+    const url = (window.__GRAV_API_SERVER_URL || '') + window.__GRAV_API_PREFIX + path;
     const headers = window.__GRAV_API_TOKEN ? { 'X-API-Token': window.__GRAV_API_TOKEN } : {};
     const init = { method, headers };
     if (body) {

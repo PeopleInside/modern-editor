@@ -37,6 +37,19 @@ class ModernEditorPlugin extends Plugin
     protected $generatedPath = 'cache://modern-editor/blueprints/pages';
 
     /*
+     * Pinned versions of the two small MIT-licensed markdown helper
+     * libraries (markdown <-> HTML conversion) used by the editor's
+     * markdown mode. Both are MIT-licensed (see NOTICE.md), so
+     * self-hosting them under "local" mode raises no license concern —
+     * unlike TinyMCE, MIT only requires keeping the copyright/license
+     * notice in the distributed file, which npm's published builds
+     * already include. Keep these in sync with the CDN fallback URLs
+     * hardcoded in admin-next/fields/moderneditor.js.
+     */
+    private const MARKED_VERSION = '12.0.0';
+    private const TURNDOWN_VERSION = '7.1.3';
+
+    /*
      * Required so Grav can find ModernEditorApiController (classes/ dir),
      * used by the Grav 2.0 / Admin2 REST API integration below.
      */
@@ -99,354 +112,49 @@ class ModernEditorPlugin extends Plugin
             return;
         }
 
-        $uri = $this->grav['uri'];
-        $action = $uri->query('action');
+        // Auto-download local assets if local is selected as the editor
+        // source but missing entirely.
+        //
+        // The old ?action=download_tinymce|check_updates|remove_tinymce_local|
+        // get_config|get_status query-string handlers that used to live here
+        // have been removed entirely:
+        //  - They are unreachable in practice: this plugin depends on
+        //    Grav >=2.0.0 / Admin Next only (see blueprints.yaml), which
+        //    never had a working code path that relied on classic Grav 1.x
+        //    query-string actions in the first place.
+        //  - They duplicated logic already implemented once in
+        //    downloadTinyMceAction() / checkUpdatesAction() /
+        //    removeTinyMceLocalAction() / getStatusData() / getConfigData(),
+        //    exposed safely through the REST API in onApiRegisterRoutes()
+        //    (POST + token-authenticated, see ModernEditorApiController).
+        //    Having two parallel implementations of the same actions is how
+        //    the "auto-heal downgrades TinyMCE back to 7.4.0" bug slipped
+        //    in unnoticed in only one of the two copies.
+        //  - They were triggered via plain GET links with no CSRF
+        //    protection, and had a security bug where authorization fell
+        //    back to "true" for any request whose URL path merely started
+        //    with the admin route, regardless of whether the visitor was
+        //    logged in at all.
+        // The REST API endpoints registered in onApiRegisterRoutes() are
+        // the only supported way to trigger these actions going forward.
+        $editorSource = $this->config->get('plugins.modern-editor.editor_source', 'cdn');
+        if ($editorSource === 'local') {
+            $pluginDir = $this->grav['locator']->findResource('plugin://' . $this->name, true, true);
 
-        // Auto-download local assets if local is selected as the editor source but missing
-        if (!$action) {
-            $editorSource = $this->config->get('plugins.modern-editor.editor_source', 'cdn');
-            if ($editorSource === 'local') {
-                $pluginDir = $this->grav['locator']->findResource('plugin://' . $this->name, true, true);
-                $localJs = $pluginDir . '/assets/tinymce/tinymce.min.js';
-                $versionFile = $pluginDir . '/assets/tinymce/.version';
-                $isInstalled = file_exists($localJs);
-                $installedVersion = $isInstalled && file_exists($versionFile) ? trim((string) @file_get_contents($versionFile)) : null;
-                $configVersion = '7.4.0';
-                if (!$isInstalled || $installedVersion !== $configVersion) {
-                    $this->downloadAndExtractTinyMCE($configVersion);
-                }
-            }
-            return;
-        }
-
-        $isAjax = $uri->query('ajax') === '1';
-        $lang = 'en';
-        if (isset($this->grav['language'])) {
-            $lang = $this->grav['language']->getActive() ?: 'en';
-        }
-
-        if ($action === 'download_tinymce') {
-            $user = $this->grav['user'] ?? null;
-            
-            // ✅ FIX: Autorizzazione compatibile con Grav 2.0
-            $isAuthorized = false;
-            if ($user && isset($user->authenticated) && $user->authenticated) {
-                if (method_exists($user, 'authorize')) {
-                    $isAuthorized = $user->authorize('admin.login') || $user->authorize('admin.super');
-                } else {
-                    $isAuthorized = true;
-                }
-            }
-            if (!$isAuthorized && $this->isAdminContext()) {
-                $isAuthorized = true;
+            $localJs = $pluginDir . '/assets/tinymce/tinymce.min.js';
+            if (!file_exists($localJs)) {
+                $this->downloadAndExtractTinyMCE('7.4.0');
             }
 
-            if ($isAuthorized) {
-                $version = $uri->query('version') ?: '7.4.0';
-                // Sanitize version to prevent directory traversal or remote execution
-                if (!preg_match('/^[0-9]+\.[0-9]+\.[0-9]+$/', $version)) {
-                    $version = '7.4.0';
-                }
-
-                $success = $this->downloadAndExtractTinyMCE($version);
-
-                // Reset checked version state on successful download
-                if ($success && isset($this->grav['session'])) {
-                    $this->grav['session']->modern_editor_latest_version = null;
-                }
-
-                if ($isAjax) {
-                    header('Content-Type: application/json');
-                    echo json_encode([
-                        'status' => $success ? 'success' : 'error',
-                        'message' => $success
-                            ? ($lang === 'it' ? "TinyMCE v{$version} è stato scaricato ed estratto con successo localmente!" : "TinyMCE v{$version} has been successfully downloaded and extracted locally!")
-                            : ($lang === 'it' ? "Impossibile scaricare TinyMCE v{$version}. Controlla i dettagli dell'errore." : "Failed to download TinyMCE v{$version}. Check error details."),
-                        'html' => $this->getLocalStatusHtml()
-                    ]);
-                    exit;
-                }
-
-                $admin = $this->grav['admin'] ?? null;
-                if ($success) {
-                    if ($admin) {
-                        $admin->setMessage("TinyMCE v{$version} has been successfully downloaded and extracted locally!", 'info');
-                    } else {
-                        $this->grav['messages']->add("TinyMCE v{$version} has been successfully downloaded and extracted locally!", 'info');
-                    }
-                } else {
-                    if ($admin) {
-                        $admin->setMessage("Failed to download TinyMCE v{$version}. Check status card for details.", 'error');
-                    } else {
-                        $this->grav['messages']->add("Failed to download TinyMCE v{$version}. Check status card for details.", 'error');
-                    }
-                }
-
-                $this->grav->redirect($this->getAdminBaseUrl() . '/plugins/modern-editor');
-            } else {
-                if ($isAjax) {
-                    header('Content-Type: application/json');
-                    echo json_encode([
-                        'status' => 'error',
-                        'message' => $lang === 'it' ? "Azione non autorizzata." : "Unauthorized action."
-                    ]);
-                    exit;
-                }
-
-                $admin = $this->grav['admin'] ?? null;
-                if ($admin) {
-                    $admin->setMessage("Unauthorized action.", 'error');
-                } else {
-                    $this->grav['messages']->add("Unauthorized action.", 'error');
-                }
-            }
-        }
-
-        if ($action === 'check_updates') {
-            $user = $this->grav['user'] ?? null;
-            
-            // ✅ FIX: Autorizzazione compatibile con Grav 2.0
-            $isAuthorized = false;
-            if ($user && isset($user->authenticated) && $user->authenticated) {
-                if (method_exists($user, 'authorize')) {
-                    $isAuthorized = $user->authorize('admin.login') || $user->authorize('admin.super');
-                } else {
-                    $isAuthorized = true;
-                }
-            }
-            if (!$isAuthorized && $this->isAdminContext()) {
-                $isAuthorized = true;
-            }
-
-            if ($isAuthorized) {
-                $latestVersion = $this->fetchLatestTinyMCEVersion();
-                $pluginDir = $this->grav['locator']->findResource('plugin://' . $this->name, true, true);
-                $localJs = $pluginDir . '/assets/tinymce/tinymce.min.js';
-                $versionFile = $pluginDir . '/assets/tinymce/.version';
-                $isInstalled = file_exists($localJs);
-                $installedVersion = $isInstalled && file_exists($versionFile) ? trim((string) @file_get_contents($versionFile)) : null;
-
-                if ($latestVersion) {
-                    if (isset($this->grav['session'])) {
-                        $this->grav['session']->modern_editor_latest_version = $latestVersion;
-                    }
-
-                    if ($installedVersion === $latestVersion) {
-                        $msg = $lang === 'it'
-                            ? "La versione locale di TinyMCE è già aggiornata alla versione più recente: v{$installedVersion}!"
-                            : "The local version of TinyMCE is already updated to the latest version: v{$installedVersion}!";
-                    } else {
-                        $msg = $lang === 'it'
-                            ? "È disponibile un aggiornamento! Nuova versione: v{$latestVersion}. Usa il pulsante nella scheda di stato per scaricarla."
-                            : "An update is available! New version: v{$latestVersion}. Use the button in the status card to download it.";
-                    }
-                    $status = 'success';
-                } else {
-                    $msg = $lang === 'it'
-                        ? "Impossibile verificare gli aggiornamenti di TinyMCE in questo momento."
-                        : "Unable to check for TinyMCE updates at this moment.";
-                    $status = 'error';
-                }
-
-                if ($isAjax) {
-                    header('Content-Type: application/json');
-                    echo json_encode([
-                        'status' => $status,
-                        'message' => $msg,
-                        'html' => $this->getLocalStatusHtml()
-                    ]);
-                    exit;
-                }
-
-                $admin = $this->grav['admin'] ?? null;
-                if ($status === 'success') {
-                    if ($admin) {
-                        $admin->setMessage($msg, 'info');
-                    } else {
-                        $this->grav['messages']->add($msg, 'info');
-                    }
-                } else {
-                    if ($admin) {
-                        $admin->setMessage($msg, 'error');
-                    } else {
-                        $this->grav['messages']->add($msg, 'error');
-                    }
-                }
-
-                $this->grav->redirect($this->getAdminBaseUrl() . '/plugins/modern-editor');
-            } else {
-                if ($isAjax) {
-                    header('Content-Type: application/json');
-                    echo json_encode([
-                        'status' => 'error',
-                        'message' => $lang === 'it' ? "Azione non autorizzata." : "Unauthorized action."
-                    ]);
-                    exit;
-                }
-
-                $admin = $this->grav['admin'] ?? null;
-                if ($admin) {
-                    $admin->setMessage("Unauthorized action.", 'error');
-                } else {
-                    $this->grav['messages']->add("Unauthorized action.", 'error');
-                }
-            }
-        }
-
-        if ($action === 'remove_tinymce_local') {
-            $user = $this->grav['user'] ?? null;
-            
-            // ✅ FIX: Autorizzazione compatibile con Grav 2.0
-            $isAuthorized = false;
-            if ($user && isset($user->authenticated) && $user->authenticated) {
-                if (method_exists($user, 'authorize')) {
-                    $isAuthorized = $user->authorize('admin.login') || $user->authorize('admin.super');
-                } else {
-                    $isAuthorized = true;
-                }
-            }
-            if (!$isAuthorized && $this->isAdminContext()) {
-                $isAuthorized = true;
-            }
-
-            if ($isAuthorized) {
-                $pluginDir = $this->grav['locator']->findResource('plugin://' . $this->name, true, true);
-                $targetDir = $pluginDir . '/assets/tinymce';
-                $errorFile = $pluginDir . '/.download-error';
-
-                if (file_exists($errorFile)) {
-                    @unlink($errorFile);
-                }
-
-                if (is_dir($targetDir)) {
-                    $this->recursiveRmdir($targetDir);
-                }
-
-                if ($isAjax) {
-                    header('Content-Type: application/json');
-                    echo json_encode([
-                        'status' => 'success',
-                        'message' => $lang === 'it' ? "I file offline di TinyMCE sono stati rimossi con successo!" : "Offline TinyMCE files have been successfully removed!",
-                        'html' => $this->getLocalStatusHtml()
-                    ]);
-                    exit;
-                }
-
-                $admin = $this->grav['admin'] ?? null;
-                if ($admin) {
-                    $admin->setMessage("Offline TinyMCE files have been successfully removed!", 'info');
-                } else {
-                    $this->grav['messages']->add("Offline TinyMCE files have been successfully removed!", 'info');
-                }
-
-                $this->grav->redirect($this->getAdminBaseUrl() . '/plugins/modern-editor');
-            } else {
-                if ($isAjax) {
-                    header('Content-Type: application/json');
-                    echo json_encode([
-                        'status' => 'error',
-                        'message' => $lang === 'it' ? "Azione non autorizzata." : "Unauthorized action."
-                    ]);
-                    exit;
-                }
-
-                $admin = $this->grav['admin'] ?? null;
-                if ($admin) {
-                    $admin->setMessage("Unauthorized action.", 'error');
-                } else {
-                    $this->grav['messages']->add("Unauthorized action.", 'error');
-                }
-            }
-        }
-
-        if ($action === 'get_config') {
-            $user = $this->grav['user'] ?? null;
-            
-            // ✅ FIX: Autorizzazione compatibile con Grav 2.0
-            $isAuthorized = false;
-            if ($user && isset($user->authenticated) && $user->authenticated) {
-                if (method_exists($user, 'authorize')) {
-                    $isAuthorized = $user->authorize('admin.login') || $user->authorize('admin.super');
-                } else {
-                    $isAuthorized = true;
-                }
-            }
-            if (!$isAuthorized && $this->isAdminContext()) {
-                $isAuthorized = true;
-            }
-
-            if ($isAuthorized) {
-                header('Content-Type: application/json');
-                header('Cache-Control: no-cache, no-store, must-revalidate');
-                header('Pragma: no-cache');
-                header('Expires: 0');
-                echo json_encode([
-                    'editor_source' => $this->config->get('plugins.modern-editor.editor_source', 'cdn'),
-                    'editor_url' => $this->getEditorScriptUrl(),
-                    'height' => $this->config->get('plugins.modern-editor.height', '500'),
-                    'menubar' => (bool) $this->config->get('plugins.modern-editor.menubar', false),
-                    'plugins' => $this->config->get('plugins.modern-editor.plugins'),
-                    'toolbar' => $this->config->get('plugins.modern-editor.toolbar'),
-                ]);
-                exit;
-            }
-        }
-
-        if ($action === 'get_status') {
-            $user = $this->grav['user'] ?? null;
-            
-            // ✅ FIX: Autorizzazione compatibile con Grav 2.0
-            $isAuthorized = false;
-            if ($user && isset($user->authenticated) && $user->authenticated) {
-                if (method_exists($user, 'authorize')) {
-                    $isAuthorized = $user->authorize('admin.login') || $user->authorize('admin.super');
-                } else {
-                    $isAuthorized = true;
-                }
-            }
-            if (!$isAuthorized && $this->isAdminContext()) {
-                $isAuthorized = true;
-            }
-
-            if ($isAuthorized) {
-                $pluginDir = $this->grav['locator']->findResource('plugin://' . $this->name, true, true);
-                $localJs = $pluginDir . '/assets/tinymce/tinymce.min.js';
-                $versionFile = $pluginDir . '/assets/tinymce/.version';
-                $errorFile = $pluginDir . '/assets/tinymce/.error';
-                $isInstalled = file_exists($localJs);
-                $installedVersion = $isInstalled && file_exists($versionFile) ? trim((string) @file_get_contents($versionFile)) : null;
-                $hasError = file_exists($errorFile);
-                $errorMessage = $hasError ? trim((string) @file_get_contents($errorFile)) : '';
-
-                $lang = 'en';
-                if (isset($this->grav['language'])) {
-                    $lang = $this->grav['language']->getActive() ?: 'en';
-                }
-
-                $latestVersion = null;
-                if (isset($this->grav['session'])) {
-                    $latestVersion = $this->grav['session']->modern_editor_latest_version ?? null;
-                }
-
-                $adminBase = $this->getAdminBaseUrl() . '/plugins/modern-editor';
-
-                header('Content-Type: application/json');
-                header('Cache-Control: no-cache, no-store, must-revalidate');
-                header('Pragma: no-cache');
-                header('Expires: 0');
-                echo json_encode([
-                    'is_installed' => $isInstalled,
-                    'installed_version' => $installedVersion,
-                    'latest_version' => $latestVersion,
-                    'has_error' => $hasError,
-                    'error_message' => $errorMessage,
-                    'lang' => $lang,
-                    'check_url' => $adminBase . '?action=check_updates',
-                    'reinstall_url' => $adminBase . '?action=download_tinymce&version=7.4.0',
-                    'update_url_prefix' => $adminBase . '?action=download_tinymce&version=',
-                    'html' => $this->getLocalStatusHtml()
-                ]);
-                exit;
+            // Self-host the two small markdown helper libraries too (MIT
+            // licensed, see NOTICE.md), so "local" really means zero
+            // external CDN calls, not just TinyMCE itself. Same
+            // "only-if-missing" pattern as above — never re-downloads or
+            // touches an existing file just because a newer release
+            // exists, to avoid the earlier auto-heal/downgrade bug class.
+            $vendorDir = $pluginDir . '/assets/vendor';
+            if (!file_exists($vendorDir . '/marked.umd.js') || !file_exists($vendorDir . '/turndown.js')) {
+                $this->downloadMarkdownLibraries();
             }
         }
     }
@@ -489,12 +197,20 @@ class ModernEditorPlugin extends Plugin
             @mkdir($targetDir, 0775, true);
         }
 
+        // NOTE: the installed local TinyMCE version must be part of this
+        // hash. buildOverrideYaml() bakes the editor_url (which now
+        // includes a "?v=<version>" cache-buster, see getEditorScriptUrl())
+        // directly into the cached YAML file. Without the version here,
+        // updating TinyMCE (e.g. 7.4.0 -> 8.0.0) would not trigger a
+        // regeneration, so pages would keep serving the stale cached
+        // editor_url pointing at the previous version indefinitely.
         $cfgHash = md5(json_encode([
             $this->config->get('plugins.modern-editor.height'),
             $this->config->get('plugins.modern-editor.menubar'),
             $this->config->get('plugins.modern-editor.plugins'),
             $this->config->get('plugins.modern-editor.toolbar'),
             $this->config->get('plugins.modern-editor.editor_source'),
+            $this->getInstalledTinyMCEVersion(),
         ]));
 
         $hashFile = $targetDir . '/.config-hash';
@@ -762,6 +478,7 @@ YAML;
         $lang = isset($this->grav['language']) ? ($this->grav['language']->getActive() ?: 'en') : 'en';
         $pluginDir = $this->grav['locator']->findResource('plugin://' . $this->name, true, true);
         $targetDir = $pluginDir . '/assets/tinymce';
+        $vendorDir = $pluginDir . '/assets/vendor';
         $errorFile = $pluginDir . '/.download-error';
 
         if (file_exists($errorFile)) {
@@ -770,6 +487,14 @@ YAML;
 
         if (is_dir($targetDir)) {
             $this->recursiveRmdir($targetDir);
+        }
+
+        // Also remove the self-hosted marked/turndown copies downloaded
+        // alongside TinyMCE for local mode, so "remove offline files"
+        // fully reverts back to CDN-only, with no orphaned assets left
+        // on disk.
+        if (is_dir($vendorDir)) {
+            $this->recursiveRmdir($vendorDir);
         }
 
         return [
@@ -1029,7 +754,7 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
                 $html .= "<a class='button button-small' href='{$checkUrlEsc}' data-loading-text='Verifica in corso...' style='background: #4b5563; color: white; border: none; padding: 6px 12px; border-radius: 4px; text-decoration: none; display: inline-block; font-size: 13px;'>Verifica aggiornamenti</a>";
 
                 if ($latestVersion && (!$isInstalled || $installedVersion !== $latestVersion)) {
-                    $updateUrl = $this->grav['base_url_relative'] . "/admin/plugins/modern-editor?action=download_tinymce&version={$latestVersion}";
+                    $updateUrl = $this->getAdminBaseUrl() . "/plugins/modern-editor?action=download_tinymce&version={$latestVersion}";
                     $updateUrlEsc = htmlspecialchars($updateUrl, ENT_QUOTES, 'UTF-8');
                     $html .= "<a class='button button-small' href='{$updateUrlEsc}' data-loading-text='Scaricamento in corso...' style='background: #2563eb; color: white; border: none; padding: 6px 12px; border-radius: 4px; text-decoration: none; display: inline-block; font-size: 13px; font-weight: bold;'>Scarica v{$latestVersionEsc}</a>";
                 } else {
@@ -1072,7 +797,7 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
                 $html .= "<a class='button button-small' href='{$checkUrlEsc}' data-loading-text='Checking...' style='background: #4b5563; color: white; border: none; padding: 6px 12px; border-radius: 4px; text-decoration: none; display: inline-block; font-size: 13px;'>Check for Updates</a>";
 
                 if ($latestVersion && (!$isInstalled || $installedVersion !== $latestVersion)) {
-                    $updateUrl = $this->grav['base_url_relative'] . "/admin/plugins/modern-editor?action=download_tinymce&version={$latestVersion}";
+                    $updateUrl = $this->getAdminBaseUrl() . "/plugins/modern-editor?action=download_tinymce&version={$latestVersion}";
                     $updateUrlEsc = htmlspecialchars($updateUrl, ENT_QUOTES, 'UTF-8');
                     $html .= "<a class='button button-small' href='{$updateUrlEsc}' data-loading-text='Downloading...' style='background: #2563eb; color: white; border: none; padding: 6px 12px; border-radius: 4px; text-decoration: none; display: inline-block; font-size: 13px; font-weight: bold;'>Download v{$latestVersionEsc}</a>";
                 } else {
@@ -1113,7 +838,7 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
                     $html .= "<a class='button button-small' href='{$checkUrlEsc}' data-loading-text='Verifica in corso...' style='background: #4b5563; color: white; border: none; padding: 6px 12px; border-radius: 4px; text-decoration: none; display: inline-block; font-size: 13px;'>Verifica aggiornamenti</a>";
 
                     if ($latestVersion && $installedVersion !== $latestVersion) {
-                        $updateUrl = $this->grav['base_url_relative'] . "/admin/plugins/modern-editor?action=download_tinymce&version={$latestVersion}";
+                        $updateUrl = $this->getAdminBaseUrl() . "/plugins/modern-editor?action=download_tinymce&version={$latestVersion}";
                         $updateUrlEsc = htmlspecialchars($updateUrl, ENT_QUOTES, 'UTF-8');
                         $html .= "<a class='button button-small' href='{$updateUrlEsc}' data-loading-text='Aggiornamento in corso...' style='background: #2563eb; color: white; border: none; padding: 6px 12px; border-radius: 4px; text-decoration: none; display: inline-block; font-size: 13px; font-weight: bold;'>Aggiorna a v{$latestVersionEsc}</a>";
                     }
@@ -1144,7 +869,7 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
                     $html .= "<a class='button button-small' href='{$checkUrlEsc}' data-loading-text='Checking...' style='background: #4b5563; color: white; border: none; padding: 6px 12px; border-radius: 4px; text-decoration: none; display: inline-block; font-size: 13px;'>Check for Updates</a>";
 
                     if ($latestVersion && $installedVersion !== $latestVersion) {
-                        $updateUrl = $this->grav['base_url_relative'] . "/admin/plugins/modern-editor?action=download_tinymce&version={$latestVersion}";
+                        $updateUrl = $this->getAdminBaseUrl() . "/plugins/modern-editor?action=download_tinymce&version={$latestVersion}";
                         $updateUrlEsc = htmlspecialchars($updateUrl, ENT_QUOTES, 'UTF-8');
                         $html .= "<a class='button button-small' href='{$updateUrlEsc}' data-loading-text='Updating...' style='background: #2563eb; color: white; border: none; padding: 6px 12px; border-radius: 4px; text-decoration: none; display: inline-block; font-size: 13px; font-weight: bold;'>Update to v{$latestVersionEsc}</a>";
                     }
@@ -1353,8 +1078,19 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
             @mkdir($assetsDir, 0775, true);
         }
 
-        $url = "https://download.tiny.cloud/tinymce/community/tinymce_{$version}.zip";
-        $tempZip = tempnam(sys_get_temp_dir(), 'tinymce_zip_');
+        // NOTE: Tiny's old direct-download URL for the self-hosted
+        // community zip (download.tiny.cloud/tinymce/community/...) now
+        // sits behind an account-gated download portal and is no longer
+        // reliable for newer releases (e.g. TinyMCE 8.x), which is why
+        // requesting an 8.x version could silently fail while older
+        // cached/previously-downloaded 7.x assets stayed in place. The
+        // npm registry, which we already query for the latest version
+        // number, publishes a stable tarball URL for every version ever
+        // released — including 8.x — so we download from there instead.
+        $url = "https://registry.npmjs.org/tinymce/-/tinymce-{$version}.tgz";
+        $tempBase = tempnam(sys_get_temp_dir(), 'tinymce_pkg_');
+        $tempZip = $tempBase . '.tar.gz';
+        @unlink($tempBase); // tempnam() already created an empty placeholder file we don't need
 
         $data = null;
         $httpCode = 0;
@@ -1417,9 +1153,16 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
 
         @file_put_contents($tempZip, $data);
 
-        // Extract
-        if (!class_exists('ZipArchive')) {
-            $errMsg = "PHP ZipArchive extension is not enabled on your server.";
+        // ⚠️ CLEANUP: removed a dead/misleading "if (!class_exists('ZipArchive'))"
+        // check that used to sit here. Leftover from an older approach; nothing
+        // in this method ever uses ZipArchive (npm's tinymce-{version}.tgz is a
+        // gzipped tarball, extracted below via PharData). Keeping it only meant
+        // this could fail the update on servers that simply don't have the
+        // optional zip extension enabled, even though it isn't actually needed.
+
+        // Extract (npm packages tinymce-{version}.tgz are gzipped tarballs)
+        if (!class_exists('PharData') || !extension_loaded('zlib')) {
+            $errMsg = "PHP's Phar and zlib extensions are required to extract the downloaded package.";
             if ($this->grav['admin'] ?? null) {
                 $this->grav['admin']->setMessage($errMsg, 'error');
             }
@@ -1428,29 +1171,33 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
             return false;
         }
 
-        $zip = new \ZipArchive();
         $tempExtractDir = sys_get_temp_dir() . '/tinymce_extract_' . uniqid();
         @mkdir($tempExtractDir, 0775, true);
+        $tempTar = substr($tempZip, 0, -3); // strip trailing ".gz", PharData::decompress() writes here
 
-        if ($zip->open($tempZip) !== true) {
-            $errMsg = "Failed to open downloaded ZIP file.";
+        try {
+            $phar = new \PharData($tempZip);
+            $phar->decompress(); // produces $tempTar (the .tar.gz -> .tar sibling file)
+            (new \PharData($tempTar))->extractTo($tempExtractDir, null, true);
+        } catch (\Exception $e) {
+            $errMsg = "Failed to extract downloaded package: " . $e->getMessage();
             if ($this->grav['admin'] ?? null) {
                 $this->grav['admin']->setMessage($errMsg, 'error');
             }
             @file_put_contents($errorFile, $errMsg);
             @unlink($tempZip);
+            @unlink($tempTar);
             $this->recursiveRmdir($tempExtractDir);
             return false;
         }
 
-        $zip->extractTo($tempExtractDir);
-        $zip->close();
         @unlink($tempZip);
+        @unlink($tempTar);
 
         // Locate tinymce.min.js inside extracted directory
         $sourceDir = $this->findTinyMCEJsFolder($tempExtractDir);
         if (!$sourceDir) {
-            $errMsg = "Could not find tinymce.min.js inside the downloaded ZIP file.";
+            $errMsg = "Could not find tinymce.min.js inside the downloaded package.";
             if ($this->grav['admin'] ?? null) {
                 $this->grav['admin']->setMessage($errMsg, 'error');
             }
@@ -1493,6 +1240,200 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
         }
 
         return null;
+    }
+
+    /*
+     * Recursively finds the first file matching the given filename inside
+     * a directory tree. Used to locate the built browser file inside an
+     * extracted npm package (marked/turndown), whose internal folder
+     * layout we don't need to hardcode beyond the final filename.
+     */
+    private function findFileInDir(string $dir, string $filename): ?string
+    {
+        if (!is_dir($dir)) {
+            return null;
+        }
+
+        $it = new \RecursiveDirectoryIterator($dir);
+        $it = new \RecursiveIteratorIterator($it);
+
+        foreach ($it as $file) {
+            if ($file->isFile() && $file->getFilename() === $filename) {
+                return $file->getRealPath();
+            }
+        }
+
+        return null;
+    }
+
+    /*
+     * Downloads a single built browser file (e.g. marked.umd.js,
+     * turndown.js) out of an npm package tarball and installs it into
+     * assets/vendor/, alongside a small ".<package>-version" marker file.
+     * Mirrors downloadAndExtractTinyMCE()'s approach (npm registry tarball
+     * + PharData extraction) but only needs one file out of the package,
+     * not the whole dist folder.
+     */
+    private function downloadNpmBrowserFile(string $package, string $version, string $filename): bool
+    {
+        $grav = Grav::instance();
+        /** @var \Grav\Common\Filesystem\Locator $locator */
+        $locator = $grav['locator'];
+
+        $pluginDir = $locator->findResource('plugin://' . $this->name, true, true);
+        $vendorDir = $pluginDir . '/assets/vendor';
+        $errorFile = $vendorDir . '/.error';
+
+        if (!is_dir($vendorDir)) {
+            @mkdir($vendorDir, 0775, true);
+        }
+
+        $url = "https://registry.npmjs.org/{$package}/-/{$package}-{$version}.tgz";
+        $tempBase = tempnam(sys_get_temp_dir(), 'npmasset_pkg_');
+        $tempZip = $tempBase . '.tar.gz';
+        @unlink($tempBase);
+
+        $data = null;
+        $httpCode = 0;
+        $downloadError = '';
+
+        if (function_exists('curl_init')) {
+            $ch = curl_init();
+            curl_setopt($ch, CURLOPT_URL, $url);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
+            curl_setopt($ch, CURLOPT_TIMEOUT, 60);
+
+            $data = curl_exec($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+
+            if ($data === false) {
+                $downloadError = 'Curl error: ' . curl_error($ch);
+            }
+
+            curl_close($ch);
+        }
+
+        if (!$data) {
+            $context = stream_context_create([
+                'ssl' => ['verify_peer' => true, 'verify_peer_name' => true],
+                'http' => ['timeout' => 60, 'follow_location' => 1],
+            ]);
+
+            $data = @file_get_contents($url, false, $context);
+            if ($data) {
+                $httpCode = 200;
+            } else {
+                $lastError = error_get_last();
+                $downloadError .= ' | file_get_contents error: ' . ($lastError['message'] ?? 'Unknown stream error');
+            }
+        }
+
+        if ($httpCode !== 200 || !$data) {
+            $errMsg = "Failed to download {$package}@{$version} from {$url} (HTTP {$httpCode}). Error details: " . trim($downloadError, ' |');
+            @file_put_contents($errorFile, $errMsg);
+            @unlink($tempZip);
+            return false;
+        }
+
+        @file_put_contents($tempZip, $data);
+
+        if (!class_exists('PharData') || !extension_loaded('zlib')) {
+            @file_put_contents($errorFile, "PHP's Phar and zlib extensions are required to extract {$package}.");
+            @unlink($tempZip);
+            return false;
+        }
+
+        $tempExtractDir = sys_get_temp_dir() . '/npmasset_extract_' . uniqid();
+        @mkdir($tempExtractDir, 0775, true);
+        $tempTar = substr($tempZip, 0, -3);
+
+        try {
+            $phar = new \PharData($tempZip);
+            $phar->decompress();
+            (new \PharData($tempTar))->extractTo($tempExtractDir, null, true);
+        } catch (\Exception $e) {
+            @file_put_contents($errorFile, "Failed to extract {$package}@{$version}: " . $e->getMessage());
+            @unlink($tempZip);
+            @unlink($tempTar);
+            $this->recursiveRmdir($tempExtractDir);
+            return false;
+        }
+
+        @unlink($tempZip);
+        @unlink($tempTar);
+
+        $sourceFile = $this->findFileInDir($tempExtractDir, $filename);
+        if (!$sourceFile) {
+            @file_put_contents($errorFile, "Could not find {$filename} inside the downloaded {$package}@{$version} package.");
+            $this->recursiveRmdir($tempExtractDir);
+            return false;
+        }
+
+        copy($sourceFile, $vendorDir . '/' . $filename);
+        @file_put_contents($vendorDir . '/.' . $package . '-version', $version);
+
+        $this->recursiveRmdir($tempExtractDir);
+
+        if (file_exists($errorFile)) {
+            @unlink($errorFile);
+        }
+
+        return true;
+    }
+
+    /*
+     * Downloads and self-hosts both markdown helper libraries
+     * (marked.umd.js, turndown.js) into assets/vendor/. Both are MIT
+     * licensed, so self-hosting is not a licensing concern; only
+     * TinyMCE's own licensing required special handling (see README).
+     */
+    private function downloadMarkdownLibraries(): bool
+    {
+        $markedOk = $this->downloadNpmBrowserFile('marked', self::MARKED_VERSION, 'marked.umd.js');
+        $turndownOk = $this->downloadNpmBrowserFile('turndown', self::TURNDOWN_VERSION, 'turndown.js');
+
+        return $markedOk && $turndownOk;
+    }
+
+    /*
+     * Returns the URLs the admin browser should load marked/turndown
+     * from: self-hosted (with a version cache-buster) if editor_source is
+     * "local" and the files are present, otherwise the jsDelivr CDN —
+     * exactly mirroring getEditorScriptUrl()'s cdn/local logic for
+     * TinyMCE itself.
+     */
+    public function getMarkdownLibraryUrls(): array
+    {
+        $markedCdn = 'https://cdn.jsdelivr.net/npm/marked@' . self::MARKED_VERSION . '/lib/marked.umd.js';
+        $turndownCdn = 'https://cdn.jsdelivr.net/npm/turndown@' . self::TURNDOWN_VERSION . '/dist/turndown.js';
+
+        $editorSource = $this->config->get('plugins.modern-editor.editor_source', 'cdn');
+        if ($editorSource !== 'local') {
+            return ['marked' => $markedCdn, 'turndown' => $turndownCdn];
+        }
+
+        $pluginDir = $this->grav['locator']->findResource('plugin://' . $this->name, true, true);
+        $pluginPath = ltrim((string) $this->grav['locator']->findResource('plugin://' . $this->name, false), '/');
+        $baseUrl = rtrim($this->grav['base_url_relative'], '/');
+
+        $vendorDir = $pluginDir . '/assets/vendor';
+
+        $markedLocal = $vendorDir . '/marked.umd.js';
+        $markedUrl = $markedCdn;
+        if (file_exists($markedLocal)) {
+            $markedUrl = $baseUrl . '/' . $pluginPath . '/assets/vendor/marked.umd.js?v=' . rawurlencode(self::MARKED_VERSION);
+        }
+
+        $turndownLocal = $vendorDir . '/turndown.js';
+        $turndownUrl = $turndownCdn;
+        if (file_exists($turndownLocal)) {
+            $turndownUrl = $baseUrl . '/' . $pluginPath . '/assets/vendor/turndown.js?v=' . rawurlencode(self::TURNDOWN_VERSION);
+        }
+
+        return ['marked' => $markedUrl, 'turndown' => $turndownUrl];
     }
 
     /*
@@ -1553,6 +1494,9 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
 
         $adminBase = $this->getAdminBaseUrl();
         $this->grav['assets']->addInlineJs("window.__MODERN_EDITOR_ADMIN_BASE__ = " . json_encode($adminBase) . ";");
+
+        $mdUrls = $this->getMarkdownLibraryUrls();
+        $this->grav['assets']->addInlineJs("window.__MODERN_EDITOR_MD_URLS__ = " . json_encode($mdUrls) . ";");
     }
 
     /*
@@ -1611,10 +1555,45 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
             $pluginPath = $this->grav['locator']->findResource('plugin://' . $this->name, false);
             $baseUrl = rtrim($this->grav['base_url_relative'], '/');
             $pluginPathClean = ltrim($pluginPath, '/');
-            return ($baseUrl ? $baseUrl : '') . '/' . $pluginPathClean . '/assets/tinymce/tinymce.min.js';
+            $url = ($baseUrl ? $baseUrl : '') . '/' . $pluginPathClean . '/assets/tinymce/tinymce.min.js';
+
+            // ✅ FIX: cache-busting. Without a version-based query string,
+            // the browser (and any intermediate cache/CDN) keeps serving
+            // the previously downloaded tinymce.min.js from HTTP cache
+            // under this exact same URL even after downloadAndExtractTinyMCE()
+            // successfully replaces the file on disk with a newer version.
+            // That's why "check for updates" -> "install" reports success,
+            // but a page refresh still loads the old TinyMCE build: the file
+            // on disk was updated, but the URL requested by the browser
+            // never changed, so it never re-fetched it.
+            $installedVersion = $this->getInstalledTinyMCEVersion();
+            if ($installedVersion) {
+                $url .= '?v=' . rawurlencode($installedVersion);
+            }
+
+            return $url;
         }
 
         return 'https://cdn.jsdelivr.net/npm/tinymce@7/tinymce.min.js';
+    }
+
+    /*
+     * Returns the version string of the currently installed local TinyMCE
+     * build (from the .version marker file written by
+     * downloadAndExtractTinyMCE()), or null if none is installed.
+     */
+    private function getInstalledTinyMCEVersion(): ?string
+    {
+        $pluginDir = $this->grav['locator']->findResource('plugin://' . $this->name, true, true);
+        $localJs = $pluginDir . '/assets/tinymce/tinymce.min.js';
+        $versionFile = $pluginDir . '/assets/tinymce/.version';
+
+        if (!file_exists($localJs) || !file_exists($versionFile)) {
+            return null;
+        }
+
+        $version = trim((string) @file_get_contents($versionFile));
+        return $version !== '' ? $version : null;
     }
 
     /*
