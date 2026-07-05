@@ -18,6 +18,141 @@ const TAG = window.__GRAV_FIELD_TAG;
 const TINYMCE_CDN = 'https://cdn.jsdelivr.net/npm/tinymce@7/tinymce.min.js';
 const TINYMCE_CDN_HOSTS = ['cdn.jsdelivr.net', 'tiny.cloud', 'cdnjs.cloudflare.com'];
 
+let markdownLibrariesPromise = null;
+
+function loadMarkdownLibraries() {
+  if (markdownLibrariesPromise) {
+    return markdownLibrariesPromise;
+  }
+
+  markdownLibrariesPromise = new Promise((resolve) => {
+    let loadedCount = 0;
+    const totalToLoad = 2;
+
+    function checkDone() {
+      loadedCount++;
+      if (loadedCount === totalToLoad) {
+        resolve();
+      }
+    }
+
+    // 1. Load marked
+    if (window.marked) {
+      loadedCount++;
+    } else {
+      const scriptMarked = document.createElement('script');
+      scriptMarked.src = 'https://cdn.jsdelivr.net/npm/marked@12.0.0/lib/marked.umd.js';
+      scriptMarked.onload = checkDone;
+      scriptMarked.onerror = checkDone;
+      document.head.appendChild(scriptMarked);
+    }
+
+    // 2. Load turndown
+    if (window.TurndownService) {
+      loadedCount++;
+    } else {
+      const scriptTurndown = document.createElement('script');
+      scriptTurndown.src = 'https://cdn.jsdelivr.net/npm/turndown@7.1.3/dist/turndown.js';
+      scriptTurndown.onload = checkDone;
+      scriptTurndown.onerror = checkDone;
+      document.head.appendChild(scriptTurndown);
+    }
+
+    if (loadedCount === totalToLoad) {
+      resolve();
+    }
+  });
+
+  return markdownLibrariesPromise;
+}
+
+function mdToHtml(md) {
+  if (!md) return '';
+  if (!window.marked) return md;
+
+  let html = window.marked.parse ? window.marked.parse(md) : window.marked(md);
+
+  // Post-process HTML to identify GitHub Alerts and render beautiful blockquote styles
+  try {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, 'text/html');
+    const blockquotes = doc.querySelectorAll('blockquote');
+    
+    blockquotes.forEach(bq => {
+      const text = bq.textContent.trim();
+      const match = text.match(/^\[\!([A-Z]+)\]/i);
+      if (match) {
+        const alertType = match[1].toUpperCase();
+        bq.classList.add('markdown-alert', `markdown-alert-${alertType.toLowerCase()}`);
+        
+        const firstP = bq.querySelector('p');
+        if (firstP) {
+          let inner = firstP.innerHTML;
+          inner = inner.replace(/^\[\!([A-Z]+)\]/i, '<strong>[!$1]</strong>');
+          firstP.innerHTML = inner;
+        }
+      }
+    });
+    return doc.body.innerHTML;
+  } catch (e) {
+    console.error('Error post-processing markdown alerts', e);
+    return html;
+  }
+}
+
+function htmlToMd(html) {
+  if (!html) return '';
+  if (!window.TurndownService) return html;
+
+  const turndownService = new window.TurndownService({
+    headingStyle: 'atx',
+    hr: '---',
+    bulletListMarker: '*',
+    codeBlockStyle: 'fenced',
+    emDelimiter: '_'
+  });
+
+  turndownService.addRule('markdownAlerts', {
+    filter: function (node) {
+      return (
+        node.nodeName === 'BLOCKQUOTE' &&
+        (node.classList.contains('markdown-alert') ||
+         node.textContent.includes('[!NOTE]') ||
+         node.textContent.includes('[!TIP]') ||
+         node.textContent.includes('[!IMPORTANT]') ||
+         node.textContent.includes('[!WARNING]') ||
+         node.textContent.includes('[!CAUTION]'))
+      );
+    },
+    replacement: function (content, node) {
+      let alertType = 'NOTE';
+      if (node.classList.contains('markdown-alert-tip') || node.textContent.includes('[!TIP]')) alertType = 'TIP';
+      else if (node.classList.contains('markdown-alert-important') || node.textContent.includes('[!IMPORTANT]')) alertType = 'IMPORTANT';
+      else if (node.classList.contains('markdown-alert-warning') || node.textContent.includes('[!WARNING]')) alertType = 'WARNING';
+      else if (node.classList.contains('markdown-alert-caution') || node.textContent.includes('[!CAUTION]')) alertType = 'CAUTION';
+
+      const lines = content.split('\n');
+      const cleanedLines = lines.map(line => {
+        let l = line.trim();
+        if (l.startsWith('>')) {
+          l = l.substring(1).trim();
+        }
+        l = l.replace(/\*\*\[\!([A-Z]+)\]\*\*/g, '');
+        l = l.replace(/_\[\!([A-Z]+)\]_/g, '');
+        l = l.replace(/\[\!([A-Z]+)\]/g, '');
+        return l.trim();
+      }).filter(l => l.length > 0);
+
+      const resultLines = [`[!${alertType}]`, ...cleanedLines];
+      return '\n\n' + resultLines.map(l => '> ' + l).join('\n') + '\n\n';
+    }
+  });
+
+  let md = turndownService.turndown(html);
+  md = md.replace(/\n{3,}/g, '\n\n');
+  return md;
+}
+
 function isTrustedTinyMceCdnUrl(url) {
   try {
     const parsed = new URL(url, window.location.href);
@@ -72,26 +207,23 @@ function loadTinyMCE(url) {
   return window.__TINYMCE_LOADING__;
 }
 
-function getAdminPath() {
-  if (window.GravAdmin?.config?.base_url_relative) {
-    return window.GravAdmin.config.base_url_relative;
+// Builds an AJAX request for a plugin action, preferring the real Grav
+// 2.0 / Admin2 REST API (window.__GRAV_API_SERVER_URL + __GRAV_API_PREFIX,
+// authenticated via the X-API-Token header — NOT Authorization: Bearer,
+// which FastCGI/PHP-FPM setups can silently strip). Admin2 is a decoupled
+// SPA served by its own thin wrapper that returns the same shell HTML for
+// any /panel/* sub-route, so the old approach of adding ?action=... to the
+// current admin page URL never reached our PHP at all under Admin2 — it
+// only ever worked under classic Grav 1.x admin, kept here as a fallback.
+function apiRequest(path, classicAction) {
+  if (window.__GRAV_API_SERVER_URL && window.__GRAV_API_PREFIX) {
+    const url = window.__GRAV_API_SERVER_URL + window.__GRAV_API_PREFIX + path;
+    const headers = window.__GRAV_API_TOKEN ? { 'X-API-Token': window.__GRAV_API_TOKEN } : {};
+    return fetch(url, { headers }).then(r => ({ res: r, url }));
   }
-  if (window.GravAdmin?.config?.base_url) {
-    return window.GravAdmin.config.base_url;
-  }
-  if (window.Grav?.config?.base_url_relative) {
-    return window.Grav.config.base_url_relative;
-  }
-  if (window.Grav?.config?.base_url) {
-    return window.Grav.config.base_url;
-  }
-  
-  const pathname = window.location.pathname;
-  const adminIdx = pathname.indexOf('/admin');
-  if (adminIdx !== -1) {
-    return pathname.substring(0, adminIdx + 6);
-  }
-  return '/admin';
+  const url = new URL(window.location.href);
+  url.searchParams.set('action', classicAction);
+  return fetch(url.toString()).then(r => ({ res: r, url: url.toString() }));
 }
 
 let cachedConfig = null;
@@ -101,56 +233,43 @@ async function fetchConfig() {
     return cachedConfig;
   }
 
-  const adminPath = getAdminPath();
-  const cleanAdminPath = adminPath.endsWith('/') ? adminPath.slice(0, -1) : adminPath;
-  const url = cleanAdminPath + '/plugins/modern-editor?action=get_config';
-
   try {
-    const response = await fetch(url);
-    if (response.ok) {
-      cachedConfig = await response.json();
-      return cachedConfig;
+    const { res, url } = await apiRequest('/modern-editor/config', 'get_config');
+    if (res.ok) {
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        const body = await res.json();
+        // The Grav 2.0 API wraps payloads as {"data": {...}}; the legacy
+        // classic-admin fallback returns the object directly.
+        cachedConfig = body && typeof body === 'object' && 'data' in body ? body.data : body;
+        return cachedConfig;
+      }
+      console.warn('Modern Editor: get_config returned a non-JSON response.', url);
+    } else {
+      console.warn(`Modern Editor: get_config request failed (HTTP ${res.status}).`, url);
     }
   } catch (err) {
-    console.error('Failed to fetch Modern Editor config:', err);
+    console.warn('Modern Editor: get_config request errored.', err);
   }
 
-  return {
-    editor_source: 'cdn',
-    editor_url: TINYMCE_CDN,
-    height: 500,
-    menubar: true,
-    plugins: "lists link image table code fullscreen searchreplace media",
-    toolbar: "undo redo | blocks | bold italic underline forecolor backcolor | bullist numlist | link image media table | code fullscreen"
-  };
+  // Returning null (instead of a hardcoded CDN-default object) is
+  // deliberate: the caller must NOT overwrite the editor_source/editor_url
+  // already present in the field (set correctly server-side from the
+  // blueprint) with a forced 'cdn' value just because this best-effort
+  // AJAX refresh failed.
+  return null;
 }
 
 function getEditorUrl(field) {
-  // 1. Detect the dynamic plugin root path via the script tag of moderneditor.js
-  let localPrefix = '';
-  const scriptEl = document.querySelector('script[src*="moderneditor.js"]');
-  if (scriptEl) {
-    const src = scriptEl.getAttribute('src') || '';
-    const idx = src.indexOf('/admin-next/fields/moderneditor.js');
-    if (idx !== -1) {
-      localPrefix = src.substring(0, idx);
-    }
-  }
-
-  // 2. Check the configured editor URL from the blueprint / global variable
-  const configUrl = window.__MODERN_EDITOR_URL__ || field?.editor_url || '';
-
-  // 3. If local source is active or configUrl points to a local file, construct a perfect local URL
-  const isCdn = configUrl.includes('cdn.jsdelivr.net') || configUrl.includes('tiny.cloud') || configUrl.includes('cdnjs');
-  if (field?.editor_source === 'local' || (configUrl && !isCdn)) {
-    if (localPrefix) {
-      return localPrefix + '/assets/tinymce/tinymce.min.js';
-    }
-    return configUrl;
-  }
-
-  // Fallback to CDN or global URL
-  return configUrl || TINYMCE_CDN;
+  // The blueprint (delivered by Admin2's own field/value properties, or
+  // by classic admin's server-rendered field) already carries the correct
+  // editor_url computed server-side (see getEditorScriptUrl() in
+  // modern-editor.php, which uses Grav's resource locator +
+  // base_url_relative — the only reliable way to compute it). This is now
+  // the PRIMARY source: it doesn't depend on any AJAX call succeeding.
+  // window.__MODERN_EDITOR_URL__ (classic-admin-only global) is a
+  // secondary fallback for classic Grav 1.x admin; CDN is the last resort.
+  return field?.editor_url || window.__MODERN_EDITOR_URL__ || TINYMCE_CDN;
 }
 
 function ensureBaseUrl(url) {
@@ -191,10 +310,11 @@ class TinyMCEField extends HTMLElement {
     const newVal = v ?? '';
     this._value = newVal;
     if (this._editor && this._ready) {
+      const htmlVal = mdToHtml(newVal);
       const current = this._editor.getContent();
-      if (current !== newVal) {
+      if (current !== htmlVal) {
         this._applying = true;
-        this._editor.setContent(newVal);
+        this._editor.setContent(htmlVal);
         this._applying = false;
       }
     }
@@ -241,23 +361,30 @@ class TinyMCEField extends HTMLElement {
 
     try {
       const dCfg = await fetchConfig();
-      this._field = {
-        ...dCfg,
-        ...this._field,
-        editor_source: dCfg.editor_source,
-        editor_url: dCfg.editor_url,
-        height: dCfg.height || this._field.height,
-        menubar: dCfg.menubar,
-        plugins: dCfg.plugins || this._field.plugins,
-        toolbar: dCfg.toolbar || this._field.toolbar,
-      };
+      if (dCfg) {
+        this._field = {
+          ...dCfg,
+          ...this._field,
+          // editor_source/editor_url intentionally NOT overwritten here:
+          // this._field already has the correct values from the blueprint
+          // (see getEditorUrl()), and this AJAX call is a best-effort
+          // refresh for the rest of the settings only.
+          height: dCfg.height || this._field.height,
+          menubar: dCfg.menubar,
+          plugins: dCfg.plugins || this._field.plugins,
+          toolbar: dCfg.toolbar || this._field.toolbar,
+        };
+      }
     } catch (e) {
-      console.warn('Could not fetch server config for Modern Editor, using local defaults.', e);
+      console.warn('Could not fetch server config for Modern Editor, using field defaults from the blueprint.', e);
     }
 
     const url = getEditorUrl(this._field);
 
-    loadTinyMCE(url)
+    Promise.all([
+      loadMarkdownLibraries().catch(err => console.warn('Markdown libs load failed', err)),
+      loadTinyMCE(url)
+    ])
       .then(() => {
         ensureBaseUrl(url);
         this._initEditor(isDarkMode);
@@ -366,6 +493,46 @@ class TinyMCEField extends HTMLElement {
       promotion: false, // Hides the "Get all features" button/badge
       skin: isDarkMode ? 'oxide-dark' : 'oxide',
       content_css: isDarkMode ? 'dark' : 'default',
+      content_style: `
+        blockquote {
+          border-left: 4px solid ${isDarkMode ? '#4b5563' : '#d1d5db'} !important;
+          padding-left: 1rem !important;
+          margin-left: 0 !important;
+          margin-right: 0 !important;
+          color: ${isDarkMode ? '#9ca3af' : '#4b5563'} !important;
+        }
+        .markdown-alert {
+          border-left: 4px solid !important;
+          padding: 12px 16px !important;
+          margin: 16px 0 !important;
+          border-radius: 0 6px 6px 0 !important;
+        }
+        .markdown-alert-note {
+          border-left-color: #2563eb !important;
+          background-color: ${isDarkMode ? '#1e293b' : '#eff6ff'} !important;
+          color: ${isDarkMode ? '#93c5fd' : '#1e3a8a'} !important;
+        }
+        .markdown-alert-tip {
+          border-left-color: #10b981 !important;
+          background-color: ${isDarkMode ? '#064e3b' : '#f0fdf4'} !important;
+          color: ${isDarkMode ? '#a7f3d0' : '#14532d'} !important;
+        }
+        .markdown-alert-important {
+          border-left-color: #7c3aed !important;
+          background-color: ${isDarkMode ? '#2e1065' : '#f5f3ff'} !important;
+          color: ${isDarkMode ? '#ddd6fe' : '#4c1d95'} !important;
+        }
+        .markdown-alert-warning {
+          border-left-color: #d97706 !important;
+          background-color: ${isDarkMode ? '#451a03' : '#fffbeb'} !important;
+          color: ${isDarkMode ? '#fde68a' : '#78350f'} !important;
+        }
+        .markdown-alert-caution {
+          border-left-color: #dc2626 !important;
+          background-color: ${isDarkMode ? '#450a0a' : '#fef2f2'} !important;
+          color: ${isDarkMode ? '#fecaca' : '#7f1d1d'} !important;
+        }
+      `,
       // Allows TinyMCE to detect the shadow root host for external click handling
       custom_ui_selector: TAG,
       // Anchors popup menus/dialogs to our ui-container in the Shadow DOM
@@ -374,14 +541,15 @@ class TinyMCEField extends HTMLElement {
         editor.on('init', () => {
           this._editor = editor;
           this._ready = true;
-          editor.setContent(this._value || '');
+          editor.setContent(mdToHtml(this._value || ''));
         });
         editor.on('change keyup undo redo', () => {
           if (this._applying) return;
           const html = editor.getContent();
-          this._value = html;
+          const md = htmlToMd(html);
+          this._value = md;
           this.dispatchEvent(new CustomEvent('change', {
-            detail: html,
+            detail: md,
             bubbles: true,
           }));
         });
@@ -407,7 +575,7 @@ class TinyMCEField extends HTMLElement {
     const current = JSON.stringify({ ...this._cfg(), isDarkMode, editor_url: editorUrl });
     if (this._lastCfg === current) return;
     this._lastCfg = current;
-    const html = this._editor.getContent();
+    const mdVal = htmlToMd(this._editor.getContent());
     this._editor.remove();
     this._ready = false;
     this._renderShell(isDarkMode);
@@ -415,7 +583,7 @@ class TinyMCEField extends HTMLElement {
     loadTinyMCE(editorUrl).then(() => {
       ensureBaseUrl(editorUrl);
       this._initEditor(isDarkMode);
-      this._value = html;
+      this._value = mdVal;
     });
   }
 }

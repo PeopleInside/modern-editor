@@ -1,0 +1,9 @@
+{
+    "name": "grav-plugin/modern-editor",
+    "type": "grav-plugin",
+    "autoload": {
+        "psr-4": {
+            "Grav\\Plugin\\ModernEditor\\": "classes/"
+        }
+    }
+}
