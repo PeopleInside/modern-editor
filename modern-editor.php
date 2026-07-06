@@ -75,7 +75,6 @@ class ModernEditorPlugin extends Plugin
             'onGetPageBlueprints' => ['onGetPageBlueprints', 0],
             'onBlueprintCreated' => ['onBlueprintCreated', 0],
             'onAssetsInitialized' => ['onAssetsInitialized', 0],
-            'onPagesInitialized' => ['onPagesInitialized', 100000],
             // Grav 2.0 / Admin2: real REST endpoints. This is the correct
             // replacement for the old ?action=get_status/get_config query
             // params, which never reach PHP under Admin2 (it's a decoupled
@@ -85,11 +84,12 @@ class ModernEditorPlugin extends Plugin
     }
 
     /*
-     * Registers /modern-editor/status and /modern-editor/config on the
-     * Grav API plugin (Grav 2.0+ / Admin2), if that plugin is installed.
-     * On Grav 1.x (classic admin, no API plugin), this event simply never
-     * fires, and the classic onPagesInitialized ?action= handler below
-     * keeps serving those requests instead.
+     * Registers /modern-editor/status, /modern-editor/config,
+     * /modern-editor/download, /modern-editor/check-updates and
+     * /modern-editor/remove on the Grav API plugin (Grav 2.0+ / Admin2),
+     * which is the only supported way to trigger these actions — the
+     * classic ?action=... query-string handlers that used to also serve
+     * these requests have been removed (see NOTICE below / CHANGELOG).
      */
     public function onApiRegisterRoutes(Event $event): void
     {
@@ -106,59 +106,6 @@ class ModernEditorPlugin extends Plugin
     /*
      * Handle custom backend action triggers when pages and user session are fully initialized.
      */
-    public function onPagesInitialized(): void
-    {
-        if (!$this->isAdminContext()) {
-            return;
-        }
-
-        // Auto-download local assets if local is selected as the editor
-        // source but missing entirely.
-        //
-        // The old ?action=download_tinymce|check_updates|remove_tinymce_local|
-        // get_config|get_status query-string handlers that used to live here
-        // have been removed entirely:
-        //  - They are unreachable in practice: this plugin depends on
-        //    Grav >=2.0.0 / Admin Next only (see blueprints.yaml), which
-        //    never had a working code path that relied on classic Grav 1.x
-        //    query-string actions in the first place.
-        //  - They duplicated logic already implemented once in
-        //    downloadTinyMceAction() / checkUpdatesAction() /
-        //    removeTinyMceLocalAction() / getStatusData() / getConfigData(),
-        //    exposed safely through the REST API in onApiRegisterRoutes()
-        //    (POST + token-authenticated, see ModernEditorApiController).
-        //    Having two parallel implementations of the same actions is how
-        //    the "auto-heal downgrades TinyMCE back to 7.4.0" bug slipped
-        //    in unnoticed in only one of the two copies.
-        //  - They were triggered via plain GET links with no CSRF
-        //    protection, and had a security bug where authorization fell
-        //    back to "true" for any request whose URL path merely started
-        //    with the admin route, regardless of whether the visitor was
-        //    logged in at all.
-        // The REST API endpoints registered in onApiRegisterRoutes() are
-        // the only supported way to trigger these actions going forward.
-        $editorSource = $this->config->get('plugins.modern-editor.editor_source', 'cdn');
-        if ($editorSource === 'local') {
-            $pluginDir = $this->grav['locator']->findResource('plugin://' . $this->name, true, true);
-
-            $localJs = $pluginDir . '/assets/tinymce/tinymce.min.js';
-            if (!file_exists($localJs)) {
-                $this->downloadAndExtractTinyMCE('7.4.0');
-            }
-
-            // Self-host the two small markdown helper libraries too (MIT
-            // licensed, see NOTICE.md), so "local" really means zero
-            // external CDN calls, not just TinyMCE itself. Same
-            // "only-if-missing" pattern as above — never re-downloads or
-            // touches an existing file just because a newer release
-            // exists, to avoid the earlier auto-heal/downgrade bug class.
-            $vendorDir = $pluginDir . '/assets/vendor';
-            if (!file_exists($vendorDir . '/marked.umd.js') || !file_exists($vendorDir . '/turndown.js')) {
-                $this->downloadMarkdownLibraries();
-            }
-        }
-    }
-
     /*
      * Generates (if necessary) the override blueprints for each template
      * of the active theme, then registers the generated folder as an
@@ -470,6 +417,21 @@ YAML;
             $status = 'error';
         }
 
+        // Also check the markdown helper libraries, but only when local
+        // mode is active (they're irrelevant in CDN mode, so skip the
+        // extra network calls in that case).
+        $editorSource = $this->config->get('plugins.modern-editor.editor_source', 'cdn');
+        if ($editorSource === 'local' && isset($this->grav['session'])) {
+            $latestMarked = $this->fetchLatestNpmVersion('marked');
+            $latestTurndown = $this->fetchLatestNpmVersion('turndown');
+            if ($latestMarked) {
+                $this->grav['session']->modern_editor_latest_marked_version = $latestMarked;
+            }
+            if ($latestTurndown) {
+                $this->grav['session']->modern_editor_latest_turndown_version = $latestTurndown;
+            }
+        }
+
         return ['status' => $status, 'message' => $msg, 'html' => $this->getLocalStatusHtml()];
     }
 
@@ -585,6 +547,19 @@ YAML;
         $removeUrl = $adminBaseUrl . '?action=remove_tinymce_local';
 
         $editorSource = $this->config->get('plugins.modern-editor.editor_source', 'cdn');
+
+        // Markdown helper libraries (marked/turndown) status — only
+        // relevant in local mode, but computed unconditionally here since
+        // it's cheap (just two file_exists() + optional file reads).
+        $markedInfo = $this->getMarkdownLibraryInstallInfo('marked', 'marked.umd.js');
+        $turndownInfo = $this->getMarkdownLibraryInstallInfo('turndown', 'turndown.js');
+        $latestMarked = isset($this->grav['session']) ? ($this->grav['session']->modern_editor_latest_marked_version ?? null) : null;
+        $latestTurndown = isset($this->grav['session']) ? ($this->grav['session']->modern_editor_latest_turndown_version ?? null) : null;
+
+        $markedDownloadUrl = $adminBaseUrl . '?action=download_tinymce&library=marked&version=' . self::MARKED_VERSION;
+        $turndownDownloadUrl = $adminBaseUrl . '?action=download_tinymce&library=turndown&version=' . self::TURNDOWN_VERSION;
+        $markedUpdateUrl = $latestMarked ? ($adminBaseUrl . '?action=download_tinymce&library=marked&version=' . rawurlencode($latestMarked)) : $markedDownloadUrl;
+        $turndownUpdateUrl = $latestTurndown ? ($adminBaseUrl . '?action=download_tinymce&library=turndown&version=' . rawurlencode($latestTurndown)) : $turndownDownloadUrl;
 
         // ✅ FIX: Escape tutte le variabili dinamiche
         $installedVersionEsc = htmlspecialchars($installedVersion ?? '', ENT_QUOTES, 'UTF-8');
@@ -912,9 +887,69 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
             }
         }
 
-        $html .= "</div>";
+        if ($editorSource === 'local') {
+            $markedVerEsc = htmlspecialchars($markedInfo['version'] ?? '', ENT_QUOTES, 'UTF-8');
+            $turndownVerEsc = htmlspecialchars($turndownInfo['version'] ?? '', ENT_QUOTES, 'UTF-8');
+            $latestMarkedEsc = htmlspecialchars($latestMarked ?? '', ENT_QUOTES, 'UTF-8');
+            $latestTurndownEsc = htmlspecialchars($latestTurndown ?? '', ENT_QUOTES, 'UTF-8');
+            $markedDownloadUrlEsc = htmlspecialchars($markedDownloadUrl, ENT_QUOTES, 'UTF-8');
+            $turndownDownloadUrlEsc = htmlspecialchars($turndownDownloadUrl, ENT_QUOTES, 'UTF-8');
+            $markedUpdateUrlEsc = htmlspecialchars($markedUpdateUrl, ENT_QUOTES, 'UTF-8');
+            $turndownUpdateUrlEsc = htmlspecialchars($turndownUpdateUrl, ENT_QUOTES, 'UTF-8');
 
-        // Append the beautiful inline AJAX JavaScript
+            $mdTitle = $lang === 'it' ? 'Librerie Markdown (marked / turndown)' : 'Markdown libraries (marked / turndown)';
+            $mdIntro = $lang === 'it'
+                ? "Usate per la conversione markdown ↔ HTML nell'editor. Se non ancora installate, il plugin le carica temporaneamente dalla CDN jsDelivr finché non vengono scaricate qui sotto."
+                : "Used for markdown ↔ HTML conversion in the editor. Until downloaded below, the plugin temporarily loads them from the jsDelivr CDN.";
+
+            $html .= "<div class='modern-editor-box' style='padding: 14px 18px; border-radius: 4px; margin-top: 12px;'>";
+            $html .= "<p class='modern-editor-box-title' style='margin: 0 0 4px 0; font-size: 14px; font-weight: bold;'>{$mdTitle}</p>";
+            $html .= "<p style='margin: 0 0 12px 0; font-size: 12.5px; line-height: 1.4;'>{$mdIntro}</p>";
+
+            foreach ([
+                ['name' => 'marked', 'info' => $markedInfo, 'latestEsc' => $latestMarkedEsc, 'verEsc' => $markedVerEsc, 'downloadUrl' => $markedDownloadUrlEsc, 'updateUrl' => $markedUpdateUrlEsc, 'pinned' => self::MARKED_VERSION],
+                ['name' => 'turndown', 'info' => $turndownInfo, 'latestEsc' => $latestTurndownEsc, 'verEsc' => $turndownVerEsc, 'downloadUrl' => $turndownDownloadUrlEsc, 'updateUrl' => $turndownUpdateUrlEsc, 'pinned' => self::TURNDOWN_VERSION],
+            ] as $lib) {
+                $isInstalled = $lib['info']['installed'];
+                $hasLibError = !empty($lib['info']['error']);
+
+                $html .= "<div style='display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 0; border-top: 1px solid rgba(127,127,127,0.15);'>";
+                $html .= "<div style='font-size: 13px;'>";
+                $html .= "<strong>{$lib['name']}</strong> — ";
+
+                if ($isInstalled) {
+                    $statusLabel = $lang === 'it' ? "installata, self-hosted, v{$lib['verEsc']}" : "installed locally, v{$lib['verEsc']}";
+                    $html .= "<span style='color: #059669;'>✅ {$statusLabel}</span>";
+                    if ($lib['latestEsc'] !== '' && $lib['latestEsc'] !== $lib['verEsc']) {
+                        $availableLabel = $lang === 'it' ? "aggiornamento disponibile: v{$lib['latestEsc']}" : "update available: v{$lib['latestEsc']}";
+                        $html .= " <span style='color: #b45309;'>({$availableLabel})</span>";
+                    }
+                } else {
+                    $notInstalledLabel = $lang === 'it' ? 'non installata — in uso da CDN' : 'not installed — currently loaded from CDN';
+                    $html .= "<span style='color: #b45309;'>⚠️ {$notInstalledLabel}</span>";
+                }
+
+                if ($hasLibError) {
+                    $html .= "<div class='modern-editor-inline-error' style='margin-top: 6px; font-size: 11.5px; padding: 6px; border-radius: 4px; font-family: monospace;'>" . htmlspecialchars($lib['info']['error'], ENT_QUOTES, 'UTF-8') . "</div>";
+                }
+                $html .= "</div>";
+
+                $html .= "<div style='display: flex; gap: 6px; flex-shrink: 0;'>";
+                if (!$isInstalled) {
+                    $downloadLabel = $lang === 'it' ? "Scarica v{$lib['pinned']}" : "Download v{$lib['pinned']}";
+                    $html .= "<a class='button button-small' href='{$lib['downloadUrl']}' data-loading-text='...' style='background: #2563eb; color: white; border: none; padding: 5px 10px; border-radius: 4px; text-decoration: none; font-size: 12px;'>{$downloadLabel}</a>";
+                } elseif ($lib['latestEsc'] !== '' && $lib['latestEsc'] !== $lib['verEsc']) {
+                    $updateLabel = $lang === 'it' ? "Aggiorna a v{$lib['latestEsc']}" : "Update to v{$lib['latestEsc']}";
+                    $html .= "<a class='button button-small' href='{$lib['updateUrl']}' data-loading-text='...' style='background: #059669; color: white; border: none; padding: 5px 10px; border-radius: 4px; text-decoration: none; font-size: 12px;'>{$updateLabel}</a>";
+                }
+                $html .= "</div>";
+                $html .= "</div>";
+            }
+
+            $html .= "</div>";
+        }
+
+        $html .= "</div>";
         $langJs = $lang === 'it' ? 'true' : 'false';
         $html .= "
 <script>
@@ -1333,6 +1368,9 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
 
         if ($httpCode !== 200 || !$data) {
             $errMsg = "Failed to download {$package}@{$version} from {$url} (HTTP {$httpCode}). Error details: " . trim($downloadError, ' |');
+            if ($this->grav['admin'] ?? null) {
+                $this->grav['admin']->setMessage($errMsg, 'error');
+            }
             @file_put_contents($errorFile, $errMsg);
             @unlink($tempZip);
             return false;
@@ -1489,6 +1527,15 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
             return;
         }
 
+        // Ensure local assets exist BEFORE computing the URLs we're about
+        // to inject into this exact page response. This must run first,
+        // in this method — not in onPagesInitialized, which fires later
+        // in Grav's lifecycle (see the note on the old onPagesInitialized
+        // for why that ordering caused CDN URLs to get "stuck" for an
+        // entire Admin Next SPA session after the very first activation
+        // of local mode).
+        $this->ensureLocalAssetsInstalled();
+
         $editorUrl = $this->getEditorScriptUrl();
         $this->grav['assets']->addInlineJs("window.__MODERN_EDITOR_URL__ = " . json_encode($editorUrl) . ";");
 
@@ -1497,6 +1544,36 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
 
         $mdUrls = $this->getMarkdownLibraryUrls();
         $this->grav['assets']->addInlineJs("window.__MODERN_EDITOR_MD_URLS__ = " . json_encode($mdUrls) . ";");
+    }
+
+    /*
+     * Downloads local ("self-hosted") copies of TinyMCE and/or the
+     * markdown helper libraries (marked, turndown) if editor_source is
+     * "local" and any of them are missing. Only ever installs — never
+     * re-downloads or touches a file that already exists just because a
+     * newer release might be available (that's a deliberate, explicit
+     * action via the status card / REST API, not something that should
+     * happen silently on a page load — see the earlier auto-heal/
+     * downgrade bug this plugin used to have).
+     */
+    private function ensureLocalAssetsInstalled(): void
+    {
+        $editorSource = $this->config->get('plugins.modern-editor.editor_source', 'cdn');
+        if ($editorSource !== 'local') {
+            return;
+        }
+
+        $pluginDir = $this->grav['locator']->findResource('plugin://' . $this->name, true, true);
+
+        $localJs = $pluginDir . '/assets/tinymce/tinymce.min.js';
+        if (!file_exists($localJs)) {
+            $this->downloadAndExtractTinyMCE('7.4.0');
+        }
+
+        $vendorDir = $pluginDir . '/assets/vendor';
+        if (!file_exists($vendorDir . '/marked.umd.js') || !file_exists($vendorDir . '/turndown.js')) {
+            $this->downloadMarkdownLibraries();
+        }
     }
 
     /*
@@ -1601,7 +1678,16 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
      */
     private function fetchLatestTinyMCEVersion(): ?string
     {
-        $url = 'https://registry.npmjs.org/tinymce/latest';
+        return $this->fetchLatestNpmVersion('tinymce');
+    }
+
+    /*
+     * Same logic as the TinyMCE-specific version above, generalized to
+     * any npm package (used for marked/turndown update checks too).
+     */
+    private function fetchLatestNpmVersion(string $package): ?string
+    {
+        $url = "https://registry.npmjs.org/{$package}/latest";
         $data = null;
 
         if (function_exists('curl_init')) {
@@ -1647,5 +1733,89 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
         }
 
         return null;
+    }
+
+    /*
+     * Reads the installed version marker + any recorded download error
+     * for a self-hosted markdown library (marked/turndown), for display
+     * in the status card and for the update-check flow.
+     */
+    private function getMarkdownLibraryInstallInfo(string $package, string $filename): array
+    {
+        $pluginDir = $this->grav['locator']->findResource('plugin://' . $this->name, true, true);
+        $vendorDir = $pluginDir . '/assets/vendor';
+        $installedFile = $vendorDir . '/' . $filename;
+        $versionFile = $vendorDir . '/.' . $package . '-version';
+        $errorFile = $vendorDir . '/.error';
+
+        $isInstalled = file_exists($installedFile);
+        $installedVersion = $isInstalled && file_exists($versionFile)
+            ? trim((string) @file_get_contents($versionFile))
+            : null;
+        $error = file_exists($errorFile) ? trim((string) @file_get_contents($errorFile)) : null;
+
+        return [
+            'installed' => $isInstalled,
+            'version' => $installedVersion ?: null,
+            'error' => $error ?: null,
+        ];
+    }
+
+    /*
+     * Dispatches a manual "download/update this library" request coming
+     * from the status card UI (marked/turndown) or, by extension, TinyMCE
+     * itself, to the right downloader. Mirrors downloadTinyMceAction()'s
+     * validation and response shape so the same REST endpoint
+     * (POST /modern-editor/download) can serve all three.
+     */
+    public function downloadLibraryAction(string $library, ?string $version): array
+    {
+        switch ($library) {
+            case 'marked':
+                return $this->downloadMarkedAction($version ?: self::MARKED_VERSION);
+            case 'turndown':
+                return $this->downloadTurndownAction($version ?: self::TURNDOWN_VERSION);
+            case 'tinymce':
+            default:
+                return $this->downloadTinyMceAction($version ?: '7.4.0');
+        }
+    }
+
+    public function downloadMarkedAction(string $version): array
+    {
+        $lang = isset($this->grav['language']) ? ($this->grav['language']->getActive() ?: 'en') : 'en';
+
+        if (!preg_match('/^[0-9]+\.[0-9]+\.[0-9]+$/', $version)) {
+            $version = self::MARKED_VERSION;
+        }
+
+        $success = $this->downloadNpmBrowserFile('marked', $version, 'marked.umd.js');
+
+        return [
+            'status' => $success ? 'success' : 'error',
+            'message' => $success
+                ? ($lang === 'it' ? "marked v{$version} installato con successo!" : "marked v{$version} installed successfully!")
+                : ($lang === 'it' ? "Download di marked v{$version} non riuscito. Controlla il messaggio di errore nel pannello." : "Failed to download marked v{$version}. Check the error message in the panel."),
+            'html' => $this->getLocalStatusHtml(),
+        ];
+    }
+
+    public function downloadTurndownAction(string $version): array
+    {
+        $lang = isset($this->grav['language']) ? ($this->grav['language']->getActive() ?: 'en') : 'en';
+
+        if (!preg_match('/^[0-9]+\.[0-9]+\.[0-9]+$/', $version)) {
+            $version = self::TURNDOWN_VERSION;
+        }
+
+        $success = $this->downloadNpmBrowserFile('turndown', $version, 'turndown.js');
+
+        return [
+            'status' => $success ? 'success' : 'error',
+            'message' => $success
+                ? ($lang === 'it' ? "turndown v{$version} installato con successo!" : "turndown v{$version} installed successfully!")
+                : ($lang === 'it' ? "Download di turndown v{$version} non riuscito. Controlla il messaggio di errore nel pannello." : "Failed to download turndown v{$version}. Check the error message in the panel."),
+            'html' => $this->getLocalStatusHtml(),
+        ];
     }
 }

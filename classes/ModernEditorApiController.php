@@ -47,9 +47,10 @@ class ModernEditorApiController extends AbstractApiController
         $this->requirePermission($request, 'admin.login');
 
         $body = $this->getRequestBody($request);
-        $version = is_array($body) ? ($body['version'] ?? '7.4.0') : '7.4.0';
+        $library = is_array($body) ? ($body['library'] ?? 'tinymce') : 'tinymce';
+        $version = is_array($body) ? ($body['version'] ?? null) : null;
 
-        return ApiResponse::create($this->plugin()->downloadTinyMceAction((string) $version));
+        return ApiResponse::create($this->plugin()->downloadLibraryAction((string) $library, $version !== null ? (string) $version : null));
     }
 
     public function checkUpdates(ServerRequestInterface $request): ResponseInterface

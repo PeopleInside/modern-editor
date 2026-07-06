@@ -55,6 +55,9 @@ function apiRequest(path, classicAction, options) {
   if (body && body.version) {
     url.searchParams.set('version', body.version);
   }
+  if (body && body.library) {
+    url.searchParams.set('library', body.library);
+  }
   return fetch(url.toString()).then(r => ({ res: r, url: url.toString() }));
 }
 
@@ -196,10 +199,16 @@ class ModernEditorStatusField extends HTMLElement {
         let apiPath = null;
         let classicAction = null;
         let apiVersion = null;
+        let apiLibrary = null;
         try {
           const parsed = new URL(url, window.location.href);
           classicAction = parsed.searchParams.get('action');
           apiVersion = parsed.searchParams.get('version');
+          // "library" distinguishes which self-hosted asset a
+          // download_tinymce button targets: tinymce (default, omitted),
+          // marked, or turndown. All three share the same
+          // POST /modern-editor/download endpoint server-side.
+          apiLibrary = parsed.searchParams.get('library');
           if (classicAction === 'download_tinymce') apiPath = '/modern-editor/download';
           else if (classicAction === 'check_updates') apiPath = '/modern-editor/check-updates';
           else if (classicAction === 'remove_tinymce_local') apiPath = '/modern-editor/remove';
@@ -224,7 +233,10 @@ class ModernEditorStatusField extends HTMLElement {
         // with the version in the JSON body), or falls back to the
         // classic ?action=...&ajax=1 URL for Grav 1.x classic admin.
         const request = apiPath
-          ? apiRequest(apiPath, classicAction, { method: 'POST', body: apiVersion ? { version: apiVersion } : undefined })
+          ? apiRequest(apiPath, classicAction, {
+              method: 'POST',
+              body: (apiVersion || apiLibrary) ? { version: apiVersion || undefined, library: apiLibrary || undefined } : undefined,
+            })
           : fetch(url + (url.indexOf('?') !== -1 ? '&ajax=1' : '?ajax=1')).then(r => ({ res: r, url }));
 
         request
