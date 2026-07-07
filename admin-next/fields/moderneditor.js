@@ -221,24 +221,46 @@ const TINYMCE_IT_I18N = {
   'Insert': 'Inserisci', 'Edit': 'Modifica', 'View': 'Visualizza', 'Format': 'Formato', 'Tools': 'Strumenti',
 };
 
-function detectItalianLocale(dCfg) {
-  // window.__MODERN_EDITOR_ADMIN_LANG__ / dCfg.lang are computed by
-  // getUiLanguage() in modern-editor.php, which now checks the plugin's
-  // own explicit "ui_language" setting FIRST (see blueprints.yaml) before
-  // any auto-detection — the one thing guaranteed to be correct regardless
-  // of how a given Admin Next build exposes its own UI language. This is
-  // checked before document.documentElement.lang on purpose: that signal
-  // turned out to NOT reliably reflect Grav's configured admin language on
-  // every Admin Next build, which is exactly what caused the editor to
-  // keep loading in English despite Grav being set to Italian.
-  if (window.__MODERN_EDITOR_ADMIN_LANG__ === 'it' || window.__MODERN_EDITOR_ADMIN_LANG__ === 'en') {
-    return window.__MODERN_EDITOR_ADMIN_LANG__ === 'it';
+// Normalizes a BCP-47 language tag ("it-IT", "en_US", "IT", ...) down to
+// its primary subtag ("it", "en"), lowercased. Every raw language signal
+// in this file (browser globals, dCfg, documentElement.lang) MUST go
+// through this before being compared to 'it'/'en': comparing a full tag
+// like "it-IT" with strict equality against 'it' silently fails even
+// though the language IS Italian, which is exactly what kept this field
+// in English on Grav installs whose admin locale is exposed as a
+// region-qualified tag rather than a bare "it".
+function normalizeLangTag(value) {
+  if (!value || typeof value !== 'string') {
+    return null;
   }
-  if (dCfg && (dCfg.lang === 'it' || dCfg.lang === 'en')) {
-    return dCfg.lang === 'it';
+  const primary = value.split(/[-_]/)[0].toLowerCase();
+  return (primary === 'it' || primary === 'en') ? primary : null;
+}
+
+function detectItalianLocale(dCfg) {
+  // Priority order (each candidate normalized via normalizeLangTag()):
+  //  1. window.__GRAV_I18N.locale — Admin Next's OWN i18n store, the same
+  //     source Grav uses to translate the rest of the SPA. Exposed as a
+  //     full BCP-47 tag (e.g. "it-IT"), not a bare "it".
+  //  2. window.__MODERN_EDITOR_ADMIN_LANG__ / dCfg.lang — computed by
+  //     getUiLanguage() in modern-editor.php (honors the plugin's own
+  //     explicit "ui_language" setting first). Kept as a fallback for
+  //     admin builds where __GRAV_I18N isn't present.
+  //  3. document.documentElement.lang — last-resort guess.
+  const i18nLocale = window.__GRAV_I18N && normalizeLangTag(window.__GRAV_I18N.locale);
+  if (i18nLocale) {
+    return i18nLocale === 'it';
+  }
+  const adminLang = normalizeLangTag(window.__MODERN_EDITOR_ADMIN_LANG__);
+  if (adminLang) {
+    return adminLang === 'it';
+  }
+  const cfgLang = dCfg && normalizeLangTag(dCfg.lang);
+  if (cfgLang) {
+    return cfgLang === 'it';
   }
   try {
-    return document.documentElement.lang === 'it';
+    return normalizeLangTag(document.documentElement.lang) === 'it';
   } catch (e) {
     return false;
   }
@@ -307,18 +329,18 @@ function loadTinyMCE(url) {
 // current admin page URL never reached our PHP at all under Admin2 — it
 // only ever worked under classic Grav 1.x admin, kept here as a fallback.
 function apiRequest(path, classicAction) {
-  // Same priority as detectItalianLocale(): the server-computed global
-  // (which now honors the plugin's explicit "ui_language" setting) comes
-  // first; document.documentElement.lang is only a last-resort guess.
-  // Never navigator.language.
-  let lang = null;
-  if (window.__MODERN_EDITOR_ADMIN_LANG__ === 'it' || window.__MODERN_EDITOR_ADMIN_LANG__ === 'en') {
-    lang = window.__MODERN_EDITOR_ADMIN_LANG__;
-  } else {
+  // Same priority/normalization as detectItalianLocale(): __GRAV_I18N.locale
+  // first (Admin Next's own i18n store, exposed as a full BCP-47 tag like
+  // "it-IT" — must be normalized, not compared with strict equality),
+  // then the server-computed global, then document.documentElement.lang
+  // as a last resort. Never navigator.language.
+  let lang = window.__GRAV_I18N && normalizeLangTag(window.__GRAV_I18N.locale);
+  if (!lang) {
+    lang = normalizeLangTag(window.__MODERN_EDITOR_ADMIN_LANG__);
+  }
+  if (!lang) {
     try {
-      if (document.documentElement.lang === 'it' || document.documentElement.lang === 'en') {
-        lang = document.documentElement.lang;
-      }
+      lang = normalizeLangTag(document.documentElement.lang);
     } catch (e) { /* noop */ }
   }
 

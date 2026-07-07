@@ -31,18 +31,44 @@ const TAG = window.__GRAV_FIELD_TAG;
 // appending ?action=... to the current admin URL never reached our PHP
 // under Admin2 — that only ever worked under classic Grav 1.x admin,
 // which is kept here as a fallback.
+// Normalizes a BCP-47 language tag ("it-IT", "en_US", "IT", ...) down to
+// its primary subtag ("it", "en"), lowercased. Raw language signals MUST
+// go through this before being compared to 'it'/'en': comparing a full
+// tag like "it-IT" with strict equality against 'it' silently fails even
+// though the language IS Italian — this is what kept the status card
+// stuck in English while the rest of the (Grav-translated) admin page
+// around it was correctly in Italian.
+function normalizeLangTag(value) {
+  if (!value || typeof value !== 'string') {
+    return null;
+  }
+  const primary = value.split(/[-_]/)[0].toLowerCase();
+  return (primary === 'it' || primary === 'en') ? primary : null;
+}
+
 function resolveUiLang() {
-  // The server-computed global (see getUiLanguage() in modern-editor.php)
-  // now honors the plugin's explicit "ui_language" setting first, so it's
-  // the most reliable source — document.documentElement.lang is only a
-  // last-resort guess (it doesn't reliably reflect Grav's configured admin
-  // language on every Admin Next build). Never navigator.language.
-  if (window.__MODERN_EDITOR_ADMIN_LANG__ === 'it' || window.__MODERN_EDITOR_ADMIN_LANG__ === 'en') {
-    return window.__MODERN_EDITOR_ADMIN_LANG__;
+  // Priority order (each candidate normalized via normalizeLangTag()):
+  //  1. window.__GRAV_I18N.locale — Admin Next's OWN i18n store, the same
+  //     source Grav uses to translate the rest of the SPA. Exposed as a
+  //     full BCP-47 tag (e.g. "it-IT"), not a bare "it".
+  //  2. window.__MODERN_EDITOR_ADMIN_LANG__ — computed by getUiLanguage()
+  //     in modern-editor.php (honors the plugin's own explicit
+  //     "ui_language" setting first). Kept as a fallback for admin builds
+  //     where __GRAV_I18N isn't present.
+  //  3. document.documentElement.lang — last-resort guess.
+  // Never navigator.language.
+  const i18nLocale = window.__GRAV_I18N && normalizeLangTag(window.__GRAV_I18N.locale);
+  if (i18nLocale) {
+    return i18nLocale;
+  }
+  const adminLang = normalizeLangTag(window.__MODERN_EDITOR_ADMIN_LANG__);
+  if (adminLang) {
+    return adminLang;
   }
   try {
-    if (document.documentElement.lang === 'it' || document.documentElement.lang === 'en') {
-      return document.documentElement.lang;
+    const docLang = normalizeLangTag(document.documentElement.lang);
+    if (docLang) {
+      return docLang;
     }
   } catch (e) { /* noop */ }
   return null;

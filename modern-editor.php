@@ -374,6 +374,27 @@ YAML;
      * 2.0 stores this on the user account), then the browser's
      * Accept-Language header, then finally the site's content language.
      */
+    /*
+     * Normalizes a BCP-47 language tag ("it-IT", "en_US", "IT", ...) down
+     * to its primary subtag ("it"/"en"), lowercased. Every raw language
+     * source in getUiLanguage() below MUST be passed through this before
+     * being compared/returned: several of them (Grav's own
+     * $language->getActive(), a user's account language, the browser-
+     * computed override sent by the client) can legitimately come back as
+     * a region-qualified tag rather than a bare "it", and a strict
+     * '=== "it"' comparison against that silently fails even though the
+     * language IS Italian — exactly what left the status card in English
+     * while the rest of the (Grav-translated) admin UI was in Italian.
+     */
+    private function normalizeLangTag(?string $value): ?string
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+        $primary = strtolower(preg_split('/[-_]/', $value)[0]);
+        return ($primary === 'it' || $primary === 'en') ? $primary : null;
+    }
+
     private function getUiLanguage(?string $override = null): string
     {
         // Explicit, manually-chosen setting (plugins.modern-editor.ui_language,
@@ -381,8 +402,8 @@ YAML;
         // UI language proved unreliable across different Grav 2.0 builds —
         // this manual setting is the one thing guaranteed to work regardless
         // of how (or whether) a given installation exposes it.
-        $configuredLang = (string) $this->config->get('plugins.modern-editor.ui_language', 'auto');
-        if ($configuredLang === 'it' || $configuredLang === 'en') {
+        $configuredLang = $this->normalizeLangTag((string) $this->config->get('plugins.modern-editor.ui_language', 'auto'));
+        if ($configuredLang !== null) {
             return $configuredLang;
         }
 
@@ -392,10 +413,12 @@ YAML;
         // lighter request lifecycle that may not register every service
         // the same way a normal Twig-rendered admin page load does, so the
         // client passes along the value already computed on page load
-        // (see onAssetsInitialized / window.__MODERN_EDITOR_ADMIN_LANG__)
-        // to guarantee both contexts agree.
-        if ($override === 'it' || $override === 'en') {
-            return $override;
+        // (see onAssetsInitialized / window.__MODERN_EDITOR_ADMIN_LANG__,
+        // and window.__GRAV_I18N.locale on the client side) to guarantee
+        // both contexts agree.
+        $normalizedOverride = $this->normalizeLangTag($override);
+        if ($normalizedOverride !== null) {
+            return $normalizedOverride;
         }
 
         // $grav['language']->getActive() is the SAME value Grav itself
@@ -405,9 +428,9 @@ YAML;
         // what's already rendering correctly, it must be the primary,
         // authoritative source here too — not a secondary guess as before.
         if (isset($this->grav['language'])) {
-            $active = $this->grav['language']->getActive();
-            if (!empty($active)) {
-                return (string) $active;
+            $active = $this->normalizeLangTag((string) $this->grav['language']->getActive());
+            if ($active !== null) {
+                return $active;
             }
         }
 
@@ -417,28 +440,36 @@ YAML;
         $admin = $this->grav['admin'] ?? null;
         if ($admin) {
             if (method_exists($admin, 'getLanguage')) {
-                $adminLang = $admin->getLanguage();
-                if (!empty($adminLang)) {
-                    return (string) $adminLang;
+                $adminLang = $this->normalizeLangTag((string) $admin->getLanguage());
+                if ($adminLang !== null) {
+                    return $adminLang;
                 }
             }
-            if (!empty($admin->language ?? null)) {
-                return (string) $admin->language;
+            $adminLangProp = $this->normalizeLangTag((string) ($admin->language ?? ''));
+            if ($adminLangProp !== null) {
+                return $adminLangProp;
             }
         }
 
         $user = $this->grav['user'] ?? null;
-        if ($user && !empty($user->language)) {
-            return (string) $user->language;
+        if ($user) {
+            $userLang = $this->normalizeLangTag((string) ($user->language ?? ''));
+            if ($userLang !== null) {
+                return $userLang;
+            }
         }
 
         $session = $this->grav['session'] ?? null;
-        if ($session && !empty($session->admin_lang ?? null)) {
-            return (string) $session->admin_lang;
+        if ($session) {
+            $sessionLang = $this->normalizeLangTag((string) ($session->admin_lang ?? ''));
+            if ($sessionLang !== null) {
+                return $sessionLang;
+            }
         }
 
         return 'en';
     }
+
 
     public function downloadTinyMceAction(string $version, ?string $langOverride = null): array
     {
@@ -1141,7 +1172,7 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
                     document.head.appendChild(style);
                 }
 
-                const isIt = document.documentElement.lang === 'it' || window.navigator.language.startsWith('it') || navigator.language.startsWith('it') || " . $langJs . ";
+                const isIt = document.documentElement.lang.split(/[-_]/)[0].toLowerCase() === 'it' || window.navigator.language.startsWith('it') || navigator.language.startsWith('it') || " . $langJs . ";
                 notice.innerHTML = isIt
                     ? '🔄 <strong>Salvataggio in corso...</strong> La pagina si ricaricherà automaticamente per aggiornare lo stato e i banner.'
                     : '🔄 <strong>Saving settings...</strong> The page will reload automatically to update status and banners.';

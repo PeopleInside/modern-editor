@@ -43,7 +43,15 @@ class ModernEditorApiController extends AbstractApiController
     private function langOverride(ServerRequestInterface $request): ?string
     {
         $lang = $request->getQueryParams()['lang'] ?? null;
-        return ($lang === 'it' || $lang === 'en') ? $lang : null;
+        if (!is_string($lang) || $lang === '') {
+            return null;
+        }
+        // Normalize a region-qualified BCP-47 tag ("it-IT") down to its
+        // primary subtag, same as ModernEditor::normalizeLangTag() — the
+        // client is expected to already send a bare "it"/"en" now, but this
+        // stays defensive in case of cached/older JS or a direct API call.
+        $primary = strtolower(preg_split('/[-_]/', $lang)[0]);
+        return ($primary === 'it' || $primary === 'en') ? $primary : null;
     }
 
     public function status(ServerRequestInterface $request): ResponseInterface
