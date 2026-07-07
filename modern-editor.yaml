@@ -3,8 +3,9 @@
 # This program is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License.
 
 enabled: true
-editor_source: cdn
+editor_source: local
+ui_language: auto
 height: 500
 menubar: true
 plugins: "lists link image table code fullscreen searchreplace media"
-toolbar: "undo redo | blocks | bold italic underline forecolor backcolor | bullist numlist | link image media table | code fullscreen"
+toolbar: "undo redo | blocks | bold italic underline forecolor backcolor | alignleft aligncenter alignright alignjustify | bullist numlist | link image media table | code fullscreen"

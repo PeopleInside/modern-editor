@@ -31,9 +31,31 @@ const TAG = window.__GRAV_FIELD_TAG;
 // appending ?action=... to the current admin URL never reached our PHP
 // under Admin2 — that only ever worked under classic Grav 1.x admin,
 // which is kept here as a fallback.
+function resolveUiLang() {
+  // The server-computed global (see getUiLanguage() in modern-editor.php)
+  // now honors the plugin's explicit "ui_language" setting first, so it's
+  // the most reliable source — document.documentElement.lang is only a
+  // last-resort guess (it doesn't reliably reflect Grav's configured admin
+  // language on every Admin Next build). Never navigator.language.
+  if (window.__MODERN_EDITOR_ADMIN_LANG__ === 'it' || window.__MODERN_EDITOR_ADMIN_LANG__ === 'en') {
+    return window.__MODERN_EDITOR_ADMIN_LANG__;
+  }
+  try {
+    if (document.documentElement.lang === 'it' || document.documentElement.lang === 'en') {
+      return document.documentElement.lang;
+    }
+  } catch (e) { /* noop */ }
+  return null;
+}
+
 function apiRequest(path, classicAction, options) {
   const method = (options && options.method) || 'GET';
   const body = options && options.body;
+  // Told explicitly here because the REST API request (handled by
+  // ModernEditorApiController, a separate lightweight lifecycle from the
+  // normal admin page render) can't reliably see $grav['admin'] to detect
+  // the admin's configured language itself — see langOverride() there.
+  const lang = resolveUiLang();
 
   // __GRAV_API_PREFIX is the real signal that Admin2's API is present.
   // __GRAV_API_SERVER_URL can legitimately be "" (meaning "same origin as
@@ -41,7 +63,9 @@ function apiRequest(path, classicAction, options) {
   // treated a same-origin API as "not available" and silently fell back
   // to the broken classic ?action= mechanism (returns the SPA's HTML).
   if (window.__GRAV_API_PREFIX !== undefined && window.__GRAV_API_PREFIX !== null) {
-    const url = (window.__GRAV_API_SERVER_URL || '') + window.__GRAV_API_PREFIX + path;
+    const urlObj = new URL((window.__GRAV_API_SERVER_URL || '') + window.__GRAV_API_PREFIX + path, window.location.href);
+    if (lang) urlObj.searchParams.set('lang', lang);
+    const url = urlObj.toString();
     const headers = window.__GRAV_API_TOKEN ? { 'X-API-Token': window.__GRAV_API_TOKEN } : {};
     const init = { method, headers };
     if (body) {
@@ -52,6 +76,7 @@ function apiRequest(path, classicAction, options) {
   }
   const url = new URL(window.location.href);
   url.searchParams.set('action', classicAction);
+  if (lang) url.searchParams.set('lang', lang);
   if (body && body.version) {
     url.searchParams.set('version', body.version);
   }
@@ -136,7 +161,7 @@ class ModernEditorStatusField extends HTMLElement {
 
     // Show initial loading placeholder if never fetched or if forced loading is visible
     if (!this._statusHtml) {
-      const isIt = document.documentElement.lang === 'it' || window.navigator.language.startsWith('it');
+      const isIt = resolveUiLang() === 'it';
       this.innerHTML = `<div style="font-size: 13px; color: #6b7280; font-style: italic; padding: 12px 0;">${isIt ? 'Caricamento stato...' : 'Loading status...'}</div>`;
     }
 
@@ -258,7 +283,7 @@ class ModernEditorStatusField extends HTMLElement {
           })
           .catch(err => {
             console.error('Modern Editor status action failed:', err);
-            const isIt = document.documentElement.lang === 'it' || window.navigator.language.startsWith('it');
+            const isIt = resolveUiLang() === 'it';
             alert((isIt ? "Errore durante l'esecuzione dell'operazione: " : "Error executing operation: ") + err.message);
             if (originalText) {
               btn.innerHTML = originalText;
@@ -296,7 +321,7 @@ class ModernEditorStatusField extends HTMLElement {
           style.innerHTML = '@media (prefers-color-scheme: dark) { #modern-editor-status-card .modern-editor-save-notice { background-color: #1e3a8a !important; color: #eff6ff !important; } } html.dark #modern-editor-status-card .modern-editor-save-notice, html.dark-mode #modern-editor-status-card .modern-editor-save-notice, html.theme-dark #modern-editor-status-card .modern-editor-save-notice, body.dark #modern-editor-status-card .modern-editor-save-notice, body.dark-mode #modern-editor-status-card .modern-editor-save-notice, body.theme-dark #modern-editor-status-card .modern-editor-save-notice { background-color: #1e3a8a !important; color: #eff6ff !important; }';
           document.head.appendChild(style);
         }
-        const isIt = document.documentElement.lang === 'it' || window.navigator.language.startsWith('it');
+        const isIt = resolveUiLang() === 'it';
         notice.innerHTML = isIt 
           ? '🔄 <strong>Salvataggio in corso...</strong> La pagina si ricaricherà automaticamente per aggiornare lo stato e i banner.'
           : '🔄 <strong>Saving settings...</strong> The page will reload automatically to update status and banners.';

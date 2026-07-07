@@ -3,7 +3,7 @@
 # This program is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License.
 
 name: Modern Editor
-version: 2.0.1
+version: 2.0.2
 description: "Modern visual WYSIWYG editor (based on TinyMCE) for page content, compatible with Admin Next (Grav 2.0)."
 icon: edit
 author:
@@ -43,10 +43,20 @@ form:
       type: select
       label: PLUGIN_MODERN_EDITOR.EDITOR_SOURCE
       help: PLUGIN_MODERN_EDITOR.EDITOR_SOURCE_HELP
-      default: cdn
+      default: local
       options:
         cdn: Cloud CDN (jsDelivr)
         local: Local (Self-hosted)
+
+    ui_language:
+      type: select
+      label: PLUGIN_MODERN_EDITOR.UI_LANGUAGE
+      help: PLUGIN_MODERN_EDITOR.UI_LANGUAGE_HELP
+      default: auto
+      options:
+        auto: PLUGIN_MODERN_EDITOR.UI_LANGUAGE_AUTO
+        it: Italiano
+        en: English
 
     local_status:
       type: moderneditorstatus
@@ -81,4 +91,4 @@ form:
       type: text
       label: PLUGIN_MODERN_EDITOR.TOOLBAR
       help: PLUGIN_MODERN_EDITOR.TOOLBAR_HELP
-      default: "undo redo | blocks | bold italic underline forecolor backcolor | bullist numlist | link image media table | code fullscreen"
+      default: "undo redo | blocks | bold italic underline forecolor backcolor | alignleft aligncenter alignright alignjustify | bullist numlist | link image media table | code fullscreen"

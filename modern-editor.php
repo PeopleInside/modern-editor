@@ -243,7 +243,7 @@ class ModernEditorPlugin extends Plugin
 
         $toolbar = $this->yamlString((string) $this->config->get(
             'plugins.modern-editor.toolbar',
-            'undo redo | blocks | bold italic underline forecolor backcolor | bullist numlist | link image media table | code fullscreen'
+            'undo redo | blocks | bold italic underline forecolor backcolor | alignleft aligncenter alignright alignjustify | bullist numlist | link image media table | code fullscreen'
         ));
 
         $editorUrl = $this->getEditorScriptUrl();
@@ -362,7 +362,85 @@ YAML;
     /*
      * Determines current local status HTML to display in the plugin admin panel.
      */
-    public function downloadTinyMceAction(string $version): array
+    /*
+     * Detects the language the ADMIN PANEL is displayed in, which is not
+     * necessarily the same as the site's content language returned by
+     * $grav['language']->getActive() (that one reflects the language of
+     * the page being edited / the site's default, e.g. "en" for an
+     * English-authored site, even if the admin user has their own admin
+     * UI set to Italian — exactly the mismatch that made the status card
+     * render in English despite the rest of the admin being in Italian).
+     * Priority: the logged-in admin user's own language preference (Grav
+     * 2.0 stores this on the user account), then the browser's
+     * Accept-Language header, then finally the site's content language.
+     */
+    private function getUiLanguage(?string $override = null): string
+    {
+        // Explicit, manually-chosen setting (plugins.modern-editor.ui_language,
+        // see blueprints.yaml) always wins. Auto-detecting Admin Next's own
+        // UI language proved unreliable across different Grav 2.0 builds —
+        // this manual setting is the one thing guaranteed to work regardless
+        // of how (or whether) a given installation exposes it.
+        $configuredLang = (string) $this->config->get('plugins.modern-editor.ui_language', 'auto');
+        if ($configuredLang === 'it' || $configuredLang === 'en') {
+            return $configuredLang;
+        }
+
+        // "Auto" mode from here on: best-effort detection, still fully
+        // Grav-side. The REST API requests (Admin2's own decoupled
+        // /api/v1/... routes, see ModernEditorApiController) run in a
+        // lighter request lifecycle that may not register every service
+        // the same way a normal Twig-rendered admin page load does, so the
+        // client passes along the value already computed on page load
+        // (see onAssetsInitialized / window.__MODERN_EDITOR_ADMIN_LANG__)
+        // to guarantee both contexts agree.
+        if ($override === 'it' || $override === 'en') {
+            return $override;
+        }
+
+        // $grav['language']->getActive() is the SAME value Grav itself
+        // uses to translate this plugin's own blueprint field labels
+        // (PLUGIN_MODERN_EDITOR.* keys) and the rest of the admin UI
+        // ("Dashboard/Configurazione/Pagine..."). Since that's demonstrably
+        // what's already rendering correctly, it must be the primary,
+        // authoritative source here too — not a secondary guess as before.
+        if (isset($this->grav['language'])) {
+            $active = $this->grav['language']->getActive();
+            if (!empty($active)) {
+                return (string) $active;
+            }
+        }
+
+        // Fallbacks below only matter for Grav/Admin builds where the
+        // above isn't available; still purely Grav-side (admin account /
+        // session), never the browser.
+        $admin = $this->grav['admin'] ?? null;
+        if ($admin) {
+            if (method_exists($admin, 'getLanguage')) {
+                $adminLang = $admin->getLanguage();
+                if (!empty($adminLang)) {
+                    return (string) $adminLang;
+                }
+            }
+            if (!empty($admin->language ?? null)) {
+                return (string) $admin->language;
+            }
+        }
+
+        $user = $this->grav['user'] ?? null;
+        if ($user && !empty($user->language)) {
+            return (string) $user->language;
+        }
+
+        $session = $this->grav['session'] ?? null;
+        if ($session && !empty($session->admin_lang ?? null)) {
+            return (string) $session->admin_lang;
+        }
+
+        return 'en';
+    }
+
+    public function downloadTinyMceAction(string $version, ?string $langOverride = null): array
     {
         if (!preg_match('/^[0-9]+\.[0-9]+\.[0-9]+$/', $version)) {
             $version = '7.4.0';
@@ -374,20 +452,20 @@ YAML;
             $this->grav['session']->modern_editor_latest_version = null;
         }
 
-        $lang = isset($this->grav['language']) ? ($this->grav['language']->getActive() ?: 'en') : 'en';
+        $lang = $this->getUiLanguage($langOverride);
 
         return [
             'status' => $success ? 'success' : 'error',
             'message' => $success
                 ? ($lang === 'it' ? "TinyMCE v{$version} è stato scaricato ed estratto con successo localmente!" : "TinyMCE v{$version} has been successfully downloaded and extracted locally!")
                 : ($lang === 'it' ? "Impossibile scaricare TinyMCE v{$version}. Controlla i dettagli dell'errore." : "Failed to download TinyMCE v{$version}. Check error details."),
-            'html' => $this->getLocalStatusHtml()
+            'html' => $this->getLocalStatusHtml($langOverride)
         ];
     }
 
-    public function checkUpdatesAction(): array
+    public function checkUpdatesAction(?string $langOverride = null): array
     {
-        $lang = isset($this->grav['language']) ? ($this->grav['language']->getActive() ?: 'en') : 'en';
+        $lang = $this->getUiLanguage($langOverride);
         $latestVersion = $this->fetchLatestTinyMCEVersion();
         $pluginDir = $this->grav['locator']->findResource('plugin://' . $this->name, true, true);
         $localJs = $pluginDir . '/assets/tinymce/tinymce.min.js';
@@ -420,7 +498,7 @@ YAML;
         // Also check the markdown helper libraries, but only when local
         // mode is active (they're irrelevant in CDN mode, so skip the
         // extra network calls in that case).
-        $editorSource = $this->config->get('plugins.modern-editor.editor_source', 'cdn');
+        $editorSource = $this->config->get('plugins.modern-editor.editor_source', 'local');
         if ($editorSource === 'local' && isset($this->grav['session'])) {
             $latestMarked = $this->fetchLatestNpmVersion('marked');
             $latestTurndown = $this->fetchLatestNpmVersion('turndown');
@@ -432,12 +510,12 @@ YAML;
             }
         }
 
-        return ['status' => $status, 'message' => $msg, 'html' => $this->getLocalStatusHtml()];
+        return ['status' => $status, 'message' => $msg, 'html' => $this->getLocalStatusHtml($langOverride)];
     }
 
-    public function removeTinyMceLocalAction(): array
+    public function removeTinyMceLocalAction(?string $langOverride = null): array
     {
-        $lang = isset($this->grav['language']) ? ($this->grav['language']->getActive() ?: 'en') : 'en';
+        $lang = $this->getUiLanguage($langOverride);
         $pluginDir = $this->grav['locator']->findResource('plugin://' . $this->name, true, true);
         $targetDir = $pluginDir . '/assets/tinymce';
         $vendorDir = $pluginDir . '/assets/vendor';
@@ -462,11 +540,11 @@ YAML;
         return [
             'status' => 'success',
             'message' => $lang === 'it' ? "I file offline di TinyMCE sono stati rimossi con successo!" : "Offline TinyMCE files have been successfully removed!",
-            'html' => $this->getLocalStatusHtml()
+            'html' => $this->getLocalStatusHtml($langOverride)
         ];
     }
 
-    public function getStatusData(): array
+    public function getStatusData(?string $langOverride = null): array
     {
         $pluginDir = $this->grav['locator']->findResource('plugin://' . $this->name, true, true);
         $localJs = $pluginDir . '/assets/tinymce/tinymce.min.js';
@@ -477,10 +555,7 @@ YAML;
         $hasError = file_exists($errorFile);
         $errorMessage = $hasError ? trim((string) @file_get_contents($errorFile)) : '';
 
-        $lang = 'en';
-        if (isset($this->grav['language'])) {
-            $lang = $this->grav['language']->getActive() ?: 'en';
-        }
+        $lang = $this->getUiLanguage($langOverride);
 
         $latestVersion = null;
         if (isset($this->grav['session'])) {
@@ -499,15 +574,33 @@ YAML;
             'check_url' => $adminBase . '?action=check_updates',
             'reinstall_url' => $adminBase . '?action=download_tinymce&version=7.4.0',
             'update_url_prefix' => $adminBase . '?action=download_tinymce&version=',
-            'html' => $this->getLocalStatusHtml()
+            'html' => $this->getLocalStatusHtml($langOverride)
         ];
     }
 
-    public function getConfigData(): array
+    public function getConfigData(?string $langOverride = null): array
     {
+        // marked_url/turndown_url are included here (mirroring editor_url)
+        // so the browser has a reliable fallback for these two URLs even
+        // when window.__MODERN_EDITOR_MD_URLS__ never reaches the page —
+        // which can happen because addInlineJs() only takes effect if the
+        // current response actually renders Grav's queued assets, and
+        // Admin Next's decoupled SPA shell does not always do so on every
+        // route. This REST endpoint, unlike that inline script, is always
+        // fetched explicitly by the field's JS (see fetchConfig()), so it
+        // is a dependable second source of truth instead of the CDN
+        // hardcoded fallback silently kicking in even in "local" mode.
+        $mdUrls = $this->getMarkdownLibraryUrls();
+
         return [
-            'editor_source' => $this->config->get('plugins.modern-editor.editor_source', 'cdn'),
+            'editor_source' => $this->config->get('plugins.modern-editor.editor_source', 'local'),
             'editor_url' => $this->getEditorScriptUrl(),
+            'marked_url' => $mdUrls['marked'],
+            'turndown_url' => $mdUrls['turndown'],
+            // Same source of truth as the inline __MODERN_EDITOR_ADMIN_LANG__
+            // global — provided here too since the REST /config endpoint is
+            // fetched explicitly and doesn't depend on inline JS having run.
+            'lang' => $this->getUiLanguage($langOverride),
             'height' => $this->config->get('plugins.modern-editor.height'),
             'menubar' => $this->config->get('plugins.modern-editor.menubar'),
             'plugins' => $this->config->get('plugins.modern-editor.plugins'),
@@ -515,7 +608,7 @@ YAML;
         ];
     }
 
-    public function getLocalStatusHtml(): string
+    public function getLocalStatusHtml(?string $langOverride = null): string
     {
         $grav = Grav::instance();
         /** @var \Grav\Common\Filesystem\Locator $locator */
@@ -531,10 +624,7 @@ YAML;
         $hasError = file_exists($errorFile);
         $errorMessage = $hasError ? trim((string) @file_get_contents($errorFile)) : '';
 
-        $lang = 'en';
-        if (isset($this->grav['language'])) {
-            $lang = $this->grav['language']->getActive() ?: 'en';
-        }
+        $lang = $this->getUiLanguage($langOverride);
 
         $latestVersion = null;
         if (isset($this->grav['session'])) {
@@ -546,7 +636,7 @@ YAML;
         $reinstallUrl = $adminBaseUrl . '?action=download_tinymce&version=7.4.0';
         $removeUrl = $adminBaseUrl . '?action=remove_tinymce_local';
 
-        $editorSource = $this->config->get('plugins.modern-editor.editor_source', 'cdn');
+        $editorSource = $this->config->get('plugins.modern-editor.editor_source', 'local');
 
         // Markdown helper libraries (marked/turndown) status — only
         // relevant in local mode, but computed unconditionally here since
@@ -1448,7 +1538,7 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
         $markedCdn = 'https://cdn.jsdelivr.net/npm/marked@' . self::MARKED_VERSION . '/lib/marked.umd.js';
         $turndownCdn = 'https://cdn.jsdelivr.net/npm/turndown@' . self::TURNDOWN_VERSION . '/dist/turndown.js';
 
-        $editorSource = $this->config->get('plugins.modern-editor.editor_source', 'cdn');
+        $editorSource = $this->config->get('plugins.modern-editor.editor_source', 'local');
         if ($editorSource !== 'local') {
             return ['marked' => $markedCdn, 'turndown' => $turndownCdn];
         }
@@ -1542,6 +1632,14 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
         $adminBase = $this->getAdminBaseUrl();
         $this->grav['assets']->addInlineJs("window.__MODERN_EDITOR_ADMIN_BASE__ = " . json_encode($adminBase) . ";");
 
+        // Exposes Grav's own admin UI language (see getUiLanguage()) so the
+        // client-side field/status widgets can follow it instead of
+        // guessing from the browser's navigator.language — which was the
+        // actual bug: TinyMCE's UI and the status card kept switching to
+        // Italian just because the browser was set to Italian, regardless
+        // of what language the Grav admin panel itself was configured for.
+        $this->grav['assets']->addInlineJs("window.__MODERN_EDITOR_ADMIN_LANG__ = " . json_encode($this->getUiLanguage()) . ";");
+
         $mdUrls = $this->getMarkdownLibraryUrls();
         $this->grav['assets']->addInlineJs("window.__MODERN_EDITOR_MD_URLS__ = " . json_encode($mdUrls) . ";");
     }
@@ -1558,7 +1656,7 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
      */
     private function ensureLocalAssetsInstalled(): void
     {
-        $editorSource = $this->config->get('plugins.modern-editor.editor_source', 'cdn');
+        $editorSource = $this->config->get('plugins.modern-editor.editor_source', 'local');
         if ($editorSource !== 'local') {
             return;
         }
@@ -1626,7 +1724,7 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
 
     public function getEditorScriptUrl(): string
     {
-        $editorSource = $this->config->get('plugins.modern-editor.editor_source', 'cdn');
+        $editorSource = $this->config->get('plugins.modern-editor.editor_source', 'local');
 
         if ($editorSource === 'local') {
             $pluginPath = $this->grav['locator']->findResource('plugin://' . $this->name, false);
@@ -1768,22 +1866,22 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
      * validation and response shape so the same REST endpoint
      * (POST /modern-editor/download) can serve all three.
      */
-    public function downloadLibraryAction(string $library, ?string $version): array
+    public function downloadLibraryAction(string $library, ?string $version, ?string $langOverride = null): array
     {
         switch ($library) {
             case 'marked':
-                return $this->downloadMarkedAction($version ?: self::MARKED_VERSION);
+                return $this->downloadMarkedAction($version ?: self::MARKED_VERSION, $langOverride);
             case 'turndown':
-                return $this->downloadTurndownAction($version ?: self::TURNDOWN_VERSION);
+                return $this->downloadTurndownAction($version ?: self::TURNDOWN_VERSION, $langOverride);
             case 'tinymce':
             default:
-                return $this->downloadTinyMceAction($version ?: '7.4.0');
+                return $this->downloadTinyMceAction($version ?: '7.4.0', $langOverride);
         }
     }
 
-    public function downloadMarkedAction(string $version): array
+    public function downloadMarkedAction(string $version, ?string $langOverride = null): array
     {
-        $lang = isset($this->grav['language']) ? ($this->grav['language']->getActive() ?: 'en') : 'en';
+        $lang = $this->getUiLanguage($langOverride);
 
         if (!preg_match('/^[0-9]+\.[0-9]+\.[0-9]+$/', $version)) {
             $version = self::MARKED_VERSION;
@@ -1796,13 +1894,13 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
             'message' => $success
                 ? ($lang === 'it' ? "marked v{$version} installato con successo!" : "marked v{$version} installed successfully!")
                 : ($lang === 'it' ? "Download di marked v{$version} non riuscito. Controlla il messaggio di errore nel pannello." : "Failed to download marked v{$version}. Check the error message in the panel."),
-            'html' => $this->getLocalStatusHtml(),
+            'html' => $this->getLocalStatusHtml($langOverride),
         ];
     }
 
-    public function downloadTurndownAction(string $version): array
+    public function downloadTurndownAction(string $version, ?string $langOverride = null): array
     {
-        $lang = isset($this->grav['language']) ? ($this->grav['language']->getActive() ?: 'en') : 'en';
+        $lang = $this->getUiLanguage($langOverride);
 
         if (!preg_match('/^[0-9]+\.[0-9]+\.[0-9]+$/', $version)) {
             $version = self::TURNDOWN_VERSION;
@@ -1815,7 +1913,7 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
             'message' => $success
                 ? ($lang === 'it' ? "turndown v{$version} installato con successo!" : "turndown v{$version} installed successfully!")
                 : ($lang === 'it' ? "Download di turndown v{$version} non riuscito. Controlla il messaggio di errore nel pannello." : "Failed to download turndown v{$version}. Check the error message in the panel."),
-            'html' => $this->getLocalStatusHtml(),
+            'html' => $this->getLocalStatusHtml($langOverride),
         ];
     }
 }

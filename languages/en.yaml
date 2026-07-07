@@ -3,6 +3,9 @@ PLUGIN_MODERN_EDITOR:
   ENABLED_HELP: Enable or disable the visual editor on the page content field.
   EDITOR_SOURCE: Editor Script Source
   EDITOR_SOURCE_HELP: Choose whether to load the editor from a public Cloud CDN or use a local self-hosted version on your server.
+  UI_LANGUAGE: Editor / Admin UI Language
+  UI_LANGUAGE_HELP: "Forces the TinyMCE editor UI and this plugin's status/update banners to a specific language, overriding any automatic detection. Use \"Auto\" to try following Grav's own admin language."
+  UI_LANGUAGE_AUTO: "Auto (follow Grav)"
   LOCAL_STATUS: Local TinyMCE Status
   HEIGHT: Editor height (px)
   HEIGHT_HELP: Height in pixels of the visual editor area.

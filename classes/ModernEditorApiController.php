@@ -28,18 +28,36 @@ class ModernEditorApiController extends AbstractApiController
         return \Grav\Common\Plugins::getPlugins()['modern-editor'];
     }
 
+    /*
+     * This request lifecycle (Admin2's own decoupled API routes) doesn't
+     * reliably expose $grav['admin'], so the plugin's own language
+     * detection (getUiLanguage()) can't see which language the admin UI
+     * is actually configured for — that's why the status card kept
+     * rendering in English even though the rest of the (Twig-rendered)
+     * admin page around it was correctly in Italian. The browser already
+     * knows the right answer (it's the same admin session, same page),
+     * so the field/status JS sends it explicitly as a "lang" query
+     * parameter on every call; we just read it back here and let it
+     * override the fragile per-request guesswork.
+     */
+    private function langOverride(ServerRequestInterface $request): ?string
+    {
+        $lang = $request->getQueryParams()['lang'] ?? null;
+        return ($lang === 'it' || $lang === 'en') ? $lang : null;
+    }
+
     public function status(ServerRequestInterface $request): ResponseInterface
     {
         $this->requirePermission($request, 'admin.login');
 
-        return ApiResponse::create($this->plugin()->getStatusData());
+        return ApiResponse::create($this->plugin()->getStatusData($this->langOverride($request)));
     }
 
     public function config(ServerRequestInterface $request): ResponseInterface
     {
         $this->requirePermission($request, 'admin.login');
 
-        return ApiResponse::create($this->plugin()->getConfigData());
+        return ApiResponse::create($this->plugin()->getConfigData($this->langOverride($request)));
     }
 
     public function download(ServerRequestInterface $request): ResponseInterface
@@ -50,20 +68,24 @@ class ModernEditorApiController extends AbstractApiController
         $library = is_array($body) ? ($body['library'] ?? 'tinymce') : 'tinymce';
         $version = is_array($body) ? ($body['version'] ?? null) : null;
 
-        return ApiResponse::create($this->plugin()->downloadLibraryAction((string) $library, $version !== null ? (string) $version : null));
+        return ApiResponse::create($this->plugin()->downloadLibraryAction(
+            (string) $library,
+            $version !== null ? (string) $version : null,
+            $this->langOverride($request)
+        ));
     }
 
     public function checkUpdates(ServerRequestInterface $request): ResponseInterface
     {
         $this->requirePermission($request, 'admin.login');
 
-        return ApiResponse::create($this->plugin()->checkUpdatesAction());
+        return ApiResponse::create($this->plugin()->checkUpdatesAction($this->langOverride($request)));
     }
 
     public function remove(ServerRequestInterface $request): ResponseInterface
     {
         $this->requirePermission($request, 'admin.login');
 
-        return ApiResponse::create($this->plugin()->removeTinyMceLocalAction());
+        return ApiResponse::create($this->plugin()->removeTinyMceLocalAction($this->langOverride($request)));
     }
 }
