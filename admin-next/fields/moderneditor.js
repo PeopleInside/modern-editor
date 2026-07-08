@@ -657,6 +657,19 @@ class TinyMCEField extends HTMLElement {
       menubar: cfg.menubar,
       plugins: cfg.plugins,
       toolbar: cfg.toolbar,
+      // Fix: TinyMCE's CSS-only "fake" fullscreen (position: fixed +
+      // z-index: 1200) still rendered *underneath* Admin Next's own sticky
+      // page header in some builds. That header sits in an ancestor further
+      // up the tree that establishes its own stacking context (e.g. a
+      // transformed/animated page-transition wrapper), which traps the
+      // editor's z-index locally — no CSS override injected from outside
+      // the editor's own component can win against that, since the two
+      // elements are never compared in the same stacking context to begin
+      // with. Using the real browser Fullscreen API instead puts the editor
+      // on the browser's "top layer", which by definition sits above every
+      // other element on the page regardless of any ancestor's stacking
+      // context, so this fixes the overlap unconditionally.
+      fullscreen_native: true,
       branding: false,
       promotion: false, // Hides the "Get all features" button/badge
       skin: isDarkMode ? 'oxide-dark' : 'oxide',
