@@ -3,7 +3,7 @@
 # This program is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License.
 
 name: Modern Editor
-version: 2.0.4
+version: 2.0.5
 description: "Modern visual WYSIWYG editor (based on TinyMCE) for page content, compatible with Admin Next (Grav 2.0)."
 icon: edit
 author:
@@ -57,6 +57,18 @@ form:
         auto: PLUGIN_MODERN_EDITOR.UI_LANGUAGE_AUTO
         it: Italiano
         en: English
+
+    markdown_enabled:
+      type: toggle
+      label: PLUGIN_MODERN_EDITOR.MARKDOWN_ENABLED
+      help: PLUGIN_MODERN_EDITOR.MARKDOWN_ENABLED_HELP
+      default: true
+      highlight: 1
+      options:
+        1: PLUGIN_ADMIN.ENABLED
+        0: PLUGIN_ADMIN.DISABLED
+      validate:
+        type: bool
 
     local_status:
       type: moderneditorstatus
