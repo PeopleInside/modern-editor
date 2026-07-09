@@ -5,6 +5,7 @@
 enabled: true
 editor_source: local
 ui_language: auto
+markdown_enabled: true
 height: 500
 menubar: true
 plugins: "lists link image table code fullscreen searchreplace media"

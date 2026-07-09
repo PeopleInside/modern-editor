@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.0.5
+- **Fixed** (#13): resolved page content corruption when Grav's global markdown setting (`system.pages.markdown.enabled`) is set to `false`.
+- **New**: added a `markdown_enabled` toggle to the plugin configuration to allow disabling markdown handling entirely (working in raw HTML mode) and preventing the browser from loading or running the `marked` and `turndown` helper libraries.
+
 ## 2.0.4
 - **Fixed**: switching the editor to fullscreen mode hid TinyMCE's own toolbar and menu bar behind Admin Next's sticky page header (the dark bar with the page title/back button/Save button). TinyMCE's default "fullscreen" is CSS-only (`position: fixed` + `z-index: 1200` on the editor), which should already sit above the header's `z-index: 10` — but an ancestor further up Admin Next's layout (e.g. an animated/transformed page-transition wrapper around the header) establishes its own stacking context, which traps the editor's z-index locally and prevents it from ever being compared against the header's in the same stacking context, no matter how high it's set. An earlier attempt to fix this by injecting a global CSS override via Grav's `addInlineCss()` didn't help either, since Admin Next's decoupled SPA shell doesn't reliably render Grav's queued inline assets (the same limitation already noted for the TinyMCE/marked/turndown CDN URLs in 2.0.2/2.0.3 — see `loadMarkdownLibraries()`'s comments in `moderneditor.js`). The editor now sets TinyMCE's `fullscreen_native: true` option instead, which uses the real browser Fullscreen API: the editor is promoted to the browser's "top layer", a rendering layer that sits above every other element on the page unconditionally, independent of any ancestor's stacking context — so the header can no longer cover it regardless of how Admin Next's layout is structured.
 

@@ -15,3 +15,5 @@ PLUGIN_MODERN_EDITOR:
   PLUGINS_HELP: "Space-separated list of TinyMCE plugins to load (e.g. lists link image table code)."
   TOOLBAR: Toolbar
   TOOLBAR_HELP: "Toolbar configuration, following official TinyMCE syntax."
+  MARKDOWN_ENABLED: Markdown Support
+  MARKDOWN_ENABLED_HELP: "When enabled, the editor converts page HTML content to Markdown when saving, and vice-versa on load. If disabled, the editor works entirely in raw HTML mode and the marked and turndown helper libraries are not loaded."

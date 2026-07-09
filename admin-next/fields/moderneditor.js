@@ -446,7 +446,8 @@ class TinyMCEField extends HTMLElement {
     const newVal = v ?? '';
     this._value = newVal;
     if (this._editor && this._ready) {
-      const htmlVal = mdToHtml(newVal);
+      const isMdEnabled = this._field.markdown_enabled !== false && this._field.markdown_enabled !== 'false';
+      const htmlVal = isMdEnabled ? mdToHtml(newVal) : newVal;
       const current = this._editor.getContent();
       if (current !== htmlVal) {
         this._applying = true;
@@ -510,6 +511,7 @@ class TinyMCEField extends HTMLElement {
           menubar: dCfg.menubar,
           plugins: dCfg.plugins || this._field.plugins,
           toolbar: dCfg.toolbar || this._field.toolbar,
+          markdown_enabled: dCfg.markdown_enabled !== undefined ? dCfg.markdown_enabled : this._field.markdown_enabled,
         };
       }
     } catch (e) {
@@ -518,11 +520,15 @@ class TinyMCEField extends HTMLElement {
 
     this._dCfg = dCfg;
     const url = getEditorUrl(this._field);
+    const isMdEnabled = this._field.markdown_enabled !== false && this._field.markdown_enabled !== 'false';
 
-    Promise.all([
-      loadMarkdownLibraries(dCfg).catch(err => console.warn('Markdown libs load failed', err)),
-      loadTinyMCE(url)
-    ])
+    const promises = [];
+    if (isMdEnabled) {
+      promises.push(loadMarkdownLibraries(dCfg).catch(err => console.warn('Markdown libs load failed', err)));
+    }
+    promises.push(loadTinyMCE(url));
+
+    Promise.all(promises)
       .then(() => {
         ensureBaseUrl(url);
         this._initEditor(isDarkMode);
@@ -722,15 +728,17 @@ class TinyMCEField extends HTMLElement {
         editor.on('init', () => {
           this._editor = editor;
           this._ready = true;
-          editor.setContent(mdToHtml(this._value || ''));
+          const isMdEnabled = this._field.markdown_enabled !== false && this._field.markdown_enabled !== 'false';
+          editor.setContent(isMdEnabled ? mdToHtml(this._value || '') : (this._value || ''));
         });
         editor.on('change keyup undo redo', () => {
           if (this._applying) return;
           const html = editor.getContent();
-          const md = htmlToMd(html);
-          this._value = md;
+          const isMdEnabled = this._field.markdown_enabled !== false && this._field.markdown_enabled !== 'false';
+          const finalVal = isMdEnabled ? htmlToMd(html) : html;
+          this._value = finalVal;
           this.dispatchEvent(new CustomEvent('change', {
-            detail: md,
+            detail: finalVal,
             bubbles: true,
           }));
         });
@@ -756,7 +764,8 @@ class TinyMCEField extends HTMLElement {
     const current = JSON.stringify({ ...this._cfg(), isDarkMode, editor_url: editorUrl });
     if (this._lastCfg === current) return;
     this._lastCfg = current;
-    const mdVal = htmlToMd(this._editor.getContent());
+    const isMdEnabled = this._field.markdown_enabled !== false && this._field.markdown_enabled !== 'false';
+    const mdVal = isMdEnabled ? htmlToMd(this._editor.getContent()) : this._editor.getContent();
     this._editor.remove();
     this._ready = false;
     this._renderShell(isDarkMode);
