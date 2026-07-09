@@ -344,6 +344,8 @@ function apiRequest(path, classicAction) {
     } catch (e) { /* noop */ }
   }
 
+  const cacheBuster = Date.now();
+
   // __GRAV_API_PREFIX is the real signal that Admin2's API is present.
   // __GRAV_API_SERVER_URL can legitimately be "" (meaning "same origin as
   // the current page"), which is falsy in JS — checking `&&` on it wrongly
@@ -352,48 +354,55 @@ function apiRequest(path, classicAction) {
   if (window.__GRAV_API_PREFIX !== undefined && window.__GRAV_API_PREFIX !== null) {
     const urlObj = new URL((window.__GRAV_API_SERVER_URL || '') + window.__GRAV_API_PREFIX + path, window.location.href);
     if (lang) urlObj.searchParams.set('lang', lang);
+    urlObj.searchParams.set('_t', cacheBuster);
     const url = urlObj.toString();
     const headers = window.__GRAV_API_TOKEN ? { 'X-API-Token': window.__GRAV_API_TOKEN } : {};
-    return fetch(url, { headers }).then(r => ({ res: r, url }));
+    return fetch(url, { headers, cache: 'no-store' }).then(r => ({ res: r, url }));
   }
   const url = new URL(window.location.href);
   url.searchParams.set('action', classicAction);
   if (lang) url.searchParams.set('lang', lang);
-  return fetch(url.toString()).then(r => ({ res: r, url: url.toString() }));
+  url.searchParams.set('_t', cacheBuster);
+  return fetch(url.toString(), { cache: 'no-store' }).then(r => ({ res: r, url: url.toString() }));
 }
 
-let cachedConfig = null;
+let configPromise = null;
 
 async function fetchConfig() {
-  if (cachedConfig) {
-    return cachedConfig;
+  if (configPromise) {
+    return configPromise;
   }
 
-  try {
-    const { res, url } = await apiRequest('/modern-editor/config', 'get_config');
-    if (res.ok) {
-      const contentType = res.headers.get('content-type') || '';
-      if (contentType.includes('application/json')) {
-        const body = await res.json();
-        // The Grav 2.0 API wraps payloads as {"data": {...}}; the legacy
-        // classic-admin fallback returns the object directly.
-        cachedConfig = body && typeof body === 'object' && 'data' in body ? body.data : body;
-        return cachedConfig;
+  configPromise = (async () => {
+    try {
+      const { res, url } = await apiRequest('/modern-editor/config', 'get_config');
+      if (res.ok) {
+        const contentType = res.headers.get('content-type') || '';
+        if (contentType.includes('application/json')) {
+          const body = await res.json();
+          // The Grav 2.0 API wraps payloads as {"data": {...}}; the legacy
+          // classic-admin fallback returns the object directly.
+          const dCfg = body && typeof body === 'object' && 'data' in body ? body.data : body;
+          return dCfg;
+        }
+        console.warn('Modern Editor: get_config returned a non-JSON response.', url);
+      } else {
+        console.warn(`Modern Editor: get_config request failed (HTTP ${res.status}).`, url);
       }
-      console.warn('Modern Editor: get_config returned a non-JSON response.', url);
-    } else {
-      console.warn(`Modern Editor: get_config request failed (HTTP ${res.status}).`, url);
+    } catch (err) {
+      console.warn('Modern Editor: get_config request errored.', err);
+    } finally {
+      // Clear the promise after a short delay (e.g. 1000ms) so that subsequent
+      // page navigations/mounts fetch fresh config, but simultaneous mounts
+      // on the same page still share the same in-flight or immediate request.
+      setTimeout(() => {
+        configPromise = null;
+      }, 1000);
     }
-  } catch (err) {
-    console.warn('Modern Editor: get_config request errored.', err);
-  }
+    return null;
+  })();
 
-  // Returning null (instead of a hardcoded CDN-default object) is
-  // deliberate: the caller must NOT overwrite the editor_source/editor_url
-  // already present in the field (set correctly server-side from the
-  // blueprint) with a forced 'cdn' value just because this best-effort
-  // AJAX refresh failed.
-  return null;
+  return configPromise;
 }
 
 function getEditorUrl(field) {
