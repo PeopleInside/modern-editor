@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.0.6 
+Fix Source widow obscured by page title #16
+https://github.com/PeopleInside/modern-editor/issues/16
+
 ## 2.0.5
 - **Fixed** (#13): resolved page content corruption when Grav's global markdown setting (`system.pages.markdown.enabled`) is set to `false`.
 - **New**: added a `markdown_enabled` toggle to the plugin configuration to allow disabling markdown handling entirely (working in raw HTML mode) and preventing the browser from loading or running the `marked` and `turndown` helper libraries.
