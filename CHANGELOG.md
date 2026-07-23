@@ -1,7 +1,7 @@
 # Changelog
 
 ## 2.0.6 
-Fix Source widow obscured by page title #16
+Fix Source widow obscured by page title
 https://github.com/PeopleInside/modern-editor/issues/16
 
 ## 2.0.5
