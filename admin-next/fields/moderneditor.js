@@ -555,6 +555,7 @@ class TinyMCEField extends HTMLElement {
       this._editor = null;
       this._ready = false;
     }
+    this._cleanupAuxSink();
   }
 
   _renderShell(isDarkMode) {
@@ -645,7 +646,6 @@ class TinyMCEField extends HTMLElement {
     this.shadowRoot.querySelector('.loading')?.remove();
 
     const cfg = this._cfg();
-    const uiContainer = this.shadowRoot.querySelector('.ui-container');
 
     const useItalian = detectItalianLocale(this._dCfg);
     if (useItalian && window.tinymce) {
@@ -731,14 +731,19 @@ class TinyMCEField extends HTMLElement {
       `,
       // Allows TinyMCE to detect the shadow root host for external click handling
       custom_ui_selector: TAG,
-      // Anchors popup menus/dialogs to our ui-container in the Shadow DOM
-      ui_container: uiContainer,
       setup: (editor) => {
         editor.on('init', () => {
           this._editor = editor;
           this._ready = true;
           const isMdEnabled = this._field.markdown_enabled !== false && this._field.markdown_enabled !== 'false';
           editor.setContent(isMdEnabled ? mdToHtml(this._value || '') : (this._value || ''));
+        });
+        // native fullscreen puts our shadow host (not the sink we relocated
+        // to document.body) into the browser's top layer, so the sink has
+        // to move back inside the shadow root while fullscreen is active —
+        // see _setAuxSinkFullscreen for the full explanation.
+        editor.on('FullscreenStateChanged', (e) => {
+          this._setAuxSinkFullscreen(e.state);
         });
         editor.on('change keyup undo redo', () => {
           if (this._applying) return;
@@ -762,7 +767,100 @@ class TinyMCEField extends HTMLElement {
       initOpts.base_url = urlParts.join('/');
     }
 
+    // Issue #16 / #12: relocate the dialog sink out of the Shadow DOM
+    // before the dialogs themselves are ever opened (see _watchForAuxSink).
+    this._watchForAuxSink();
+
     window.tinymce.init(initOpts).catch((err) => this._renderError(err));
+  }
+
+  // Issue #16 (and already flagged in #12): when TinyMCE's target lives
+  // inside a Shadow Root, TinyMCE's own getContentContainer() attaches the
+  // dialog "sink" — the `.tox-tinymce-aux` element that holds the Source
+  // code dialog, Image dialog, etc. — directly to that shadow root (the
+  // `ui_container` init option has no effect here: it's only read in
+  // `inline: true` mode, so it was silently ignored). Since our shadow
+  // host is rendered inside Admin Next's page body, that sink ends up
+  // trapped in the same local stacking context as the sticky page header
+  // — the exact issue already fixed for fullscreen mode above, but a plain
+  // modal dialog can't use the Fullscreen API. Instead we physically move
+  // the sink to `document.body`, a genuine sibling of whatever wraps the
+  // header, once it appears. Its skin stylesheet is mirrored into the main
+  // document too, since a shadow root's <link>/<style> tags stop applying
+  // to elements once they leave that tree.
+  _watchForAuxSink() {
+    if (this._auxObserver || !this.shadowRoot) return;
+    const tryRelocate = () => {
+      const sink = this.shadowRoot.querySelector('.tox-tinymce-aux');
+      if (sink && !sink.dataset.medRelocated) {
+        this._relocateAuxSink(sink);
+        return true;
+      }
+      return false;
+    };
+    if (tryRelocate()) return;
+    this._auxObserver = new MutationObserver(() => {
+      if (tryRelocate() && this._auxObserver) {
+        this._auxObserver.disconnect();
+        this._auxObserver = null;
+      }
+    });
+    this._auxObserver.observe(this.shadowRoot, { childList: true });
+  }
+
+  _relocateAuxSink(sink) {
+    sink.dataset.medRelocated = '1';
+
+    // Mirror the skin stylesheet(s) TinyMCE injected into the shadow root
+    // so the relocated dialog keeps its styling once it's in the light DOM.
+    this._mirroredLinks = this._mirroredLinks || [];
+    this.shadowRoot.querySelectorAll('link[rel="stylesheet"][href*="/skins/"]').forEach((link) => {
+      if (!link.href || document.head.querySelector(`link[href="${link.href}"]`)) return;
+      const clone = link.cloneNode(true);
+      document.head.appendChild(clone);
+      this._mirroredLinks.push(clone);
+    });
+
+    // Sit above absolutely everything, regardless of any ancestor's
+    // trapped stacking context — this is now a top-level child of <body>.
+    sink.style.zIndex = '2147483001';
+    document.body.appendChild(sink);
+    this._auxSink = sink;
+  }
+
+  // Native Fullscreen puts our shadow host (the custom element itself) —
+  // not document.body — into the browser's top layer (see getFullscreenRoot
+  // in the fullscreen plugin: it targets the shadow *host* when the editor
+  // lives inside a Shadow Root). Anything outside that host's subtree,
+  // however high its z-index, renders underneath the fullscreen content.
+  // So while fullscreen is active the sink needs to live back inside the
+  // shadow root; once it ends, it goes back to document.body to escape
+  // Admin Next's own trapped stacking context (see _relocateAuxSink).
+  _setAuxSinkFullscreen(isFullscreen) {
+    const sink = this._auxSink;
+    if (!sink || !this.shadowRoot) return;
+    if (isFullscreen) {
+      if (sink.parentNode !== this.shadowRoot) {
+        this.shadowRoot.appendChild(sink);
+      }
+    } else if (sink.parentNode !== document.body) {
+      document.body.appendChild(sink);
+    }
+  }
+
+  _cleanupAuxSink() {
+    if (this._auxObserver) {
+      this._auxObserver.disconnect();
+      this._auxObserver = null;
+    }
+    if (this._auxSink && this._auxSink.parentNode) {
+      this._auxSink.parentNode.removeChild(this._auxSink);
+    }
+    this._auxSink = null;
+    if (this._mirroredLinks) {
+      this._mirroredLinks.forEach((l) => l.parentNode && l.parentNode.removeChild(l));
+      this._mirroredLinks = null;
+    }
   }
 
   _maybeReinit() {
@@ -776,6 +874,7 @@ class TinyMCEField extends HTMLElement {
     const isMdEnabled = this._field.markdown_enabled !== false && this._field.markdown_enabled !== 'false';
     const mdVal = isMdEnabled ? htmlToMd(this._editor.getContent()) : this._editor.getContent();
     this._editor.remove();
+    this._cleanupAuxSink();
     this._ready = false;
     this._renderShell(isDarkMode);
     
