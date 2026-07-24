@@ -198,6 +198,92 @@ function htmlToMd(html) {
   return md;
 }
 
+// Fix: pasting content copied from third-party sites/editors (typically
+// WordPress "View Source" exports, but also Word/Google Docs) dumped a lot
+// of foreign markup straight into the editor: presentational `class`
+// attributes tied to CSS that doesn't exist on this site (e.g. WordPress'
+// own `alignnone`/`size-full`/`wp-image-123` classes on `<img>`), noisy
+// inline `style` attributes, and — worst of all — deeply nested `<div>`
+// wrappers (including `<div>&nbsp;</div>` used by WordPress purely as
+// visual spacing) around what is otherwise just a sequence of paragraphs.
+// None of this is meaningful once pasted here: the foreign classes point at
+// CSS that isn't loaded on this site so they do nothing (or clash with this
+// theme's own styles), and Turndown (html -> Markdown, see htmlToMd()) has
+// no dedicated rule for arbitrary nested <div> soup, so it was passing
+// those divs through close to verbatim and producing broken/ugly Markdown
+// full of stray blank "&nbsp;" lines and mismatched block structure instead
+// of clean paragraphs. This runs on every paste (see the 'PastePreProcess'
+// listener in _initEditor) and: drops spacer-only elements, strips
+// presentational class/id/data-* attributes, keeps only the inline styles
+// that actually carry meaning here (text-align, since it's used for e.g.
+// centered captions/images), and unwraps <div> wrappers into their content
+// so what lands in the editor is the same flat paragraph/image structure a
+// user would get by typing/inserting it directly.
+function sanitizePastedHtml(html) {
+  if (!html) return html;
+
+  let doc;
+  try {
+    doc = new DOMParser().parseFromString(`<div id="__me_root__">${html}</div>`, 'text/html');
+  } catch (e) {
+    return html;
+  }
+  const root = doc.getElementById('__me_root__');
+  if (!root) return html;
+
+  const isBlank = (node) => {
+    // Treat &nbsp; (\u00A0) the same as regular whitespace when deciding
+    // whether an element only exists as spacing.
+    const text = (node.textContent || '').replace(/\u00A0/g, ' ').trim();
+    return text.length === 0 && !node.querySelector('img, table, hr, iframe, video, audio');
+  };
+
+  // 1. Drop elements that only serve as WordPress-style visual spacers,
+  //    e.g. <div>&nbsp;</div> or <p>&nbsp;</p>.
+  root.querySelectorAll('div, p').forEach((el) => {
+    if (isBlank(el)) el.remove();
+  });
+
+  // 2. Strip presentational/foreign attributes from every remaining
+  //    element, keeping only a small allow-list that's actually useful
+  //    here (plus a filtered `style` — see below).
+  const ATTR_ALLOWLIST = new Set(['href', 'src', 'alt', 'title', 'width', 'height', 'target', 'rel']);
+  root.querySelectorAll('*').forEach((el) => {
+    Array.from(el.attributes).forEach((attr) => {
+      const name = attr.name.toLowerCase();
+      if (name === 'style') return; // handled separately below
+      if (!ATTR_ALLOWLIST.has(name)) {
+        el.removeAttribute(attr.name);
+      }
+    });
+
+    // Keep only text-align out of any inline style (drops fonts, colors,
+    // WP/Word-specific junk, etc.); it's the one styling hint worth
+    // preserving (e.g. centered image captions/paragraphs).
+    const style = el.getAttribute('style');
+    if (style) {
+      const match = style.match(/text-align\s*:\s*(left|right|center|justify)/i);
+      if (match) {
+        el.setAttribute('style', `text-align: ${match[1].toLowerCase()};`);
+      } else {
+        el.removeAttribute('style');
+      }
+    }
+  });
+
+  // 3. Unwrap <div> wrappers (deepest first) so nested "div soup" collapses
+  //    into the flat paragraph/image structure Turndown converts cleanly.
+  const divs = Array.from(root.querySelectorAll('div')).reverse();
+  divs.forEach((div) => {
+    const parent = div.parentNode;
+    if (!parent) return;
+    while (div.firstChild) parent.insertBefore(div.firstChild, div);
+    parent.removeChild(div);
+  });
+
+  return root.innerHTML;
+}
+
 // Minimal, self-contained Italian UI translation for TinyMCE. Registered
 // via tinymce.addI18n() instead of fetching an external language pack file
 // (CDN or local), keeping Italian support free of any extra network call.
@@ -770,12 +856,34 @@ class TinyMCEField extends HTMLElement {
       // and read back unchanged.
       relative_urls: false,
       remove_script_host: false,
+      // Fix: right-clicking inside the editor's text area always opened
+      // TinyMCE's own context menu (with e.g. a "Link" entry), which not
+      // only hid the browser's native context menu but, since it's a
+      // custom menu rendered by TinyMCE rather than a real right-click on
+      // editable text, also prevented the browser from ever offering its
+      // own spell-check suggestions there. Disabling TinyMCE's context
+      // menu entirely lets the real browser context menu (and with it,
+      // right-click spell-check suggestions) come through instead;
+      // `browser_spellcheck: true` complements this by making TinyMCE mark
+      // its editing area as spellcheck="true" (it defaults to "false"),
+      // which is what makes the browser actually underline/spell-check the
+      // text in the first place.
+      contextmenu: false,
+      browser_spellcheck: true,
       setup: (editor) => {
         editor.on('init', () => {
           this._editor = editor;
           this._ready = true;
           const isMdEnabled = this._field.markdown_enabled !== false && this._field.markdown_enabled !== 'false';
           editor.setContent(isMdEnabled ? mdToHtml(this._value || '') : (this._value || ''));
+        });
+        // Fix: pasted content (typically copied from WordPress or other
+        // sites/editors) was inserted as-is, carrying foreign classes,
+        // inline styles and deeply nested spacer <div>s that produced
+        // broken/ugly Markdown once converted — see sanitizePastedHtml()
+        // above for the full explanation.
+        editor.on('PastePreProcess', (e) => {
+          e.content = sanitizePastedHtml(e.content);
         });
         // native fullscreen puts our shadow host (not the sink we relocated
         // to document.body) into the browser's top layer, so the sink has
