@@ -731,6 +731,45 @@ class TinyMCEField extends HTMLElement {
       `,
       // Allows TinyMCE to detect the shadow root host for external click handling
       custom_ui_selector: TAG,
+      // Fix: the toolbar's "..." overflow button (TinyMCE's default
+      // toolbar_mode: 'floating') opens a floating drawer panel that
+      // TinyMCE auto-closes on any click it detects as "outside" the
+      // toolbar. That outside-click detection isn't Shadow DOM-aware: our
+      // editor lives inside a Shadow Root (this is a Web Component), and
+      // for listeners attached outside that tree (as TinyMCE's is), the
+      // browser retargets `event.target` to the shadow *host* element for
+      // any event that crosses the shadow boundary — so TinyMCE's
+      // `toolbarElm.contains(event.target)` check always evaluates to
+      // false, even for clicks that landed squarely inside the drawer
+      // itself. The drawer is misclassified as "clicked outside" and
+      // closes itself almost immediately, which is why it flashes open
+      // for a moment and then disappears, making it unusable. Switching to
+      // 'wrap' avoids the floating panel (and its outside-click check)
+      // entirely: overflow buttons are simply shown on an extra toolbar
+      // row instead, which needs no cross-shadow-boundary click detection.
+      toolbar_mode: 'wrap',
+      // Fix (#18): image/link URLs entered as a root-relative path (e.g.
+      // "/index/_about/chris-lowe.jpg") were coming back out of the
+      // Source/Image dialogs mangled into "../../../../../index/_about/
+      // chris-lowe.jpg" and saved to the page's markdown in that broken
+      // form. TinyMCE defaults `relative_urls` to true, which rewrites
+      // every URL to be relative to `document_base_url` — and since that
+      // option isn't set either, it defaults to the *current page's own
+      // URL*, i.e. wherever Admin Next is mounted (e.g.
+      // /admin/pages/foo/bar/baz), not the frontend page the content will
+      // actually render on. The saved path only "looked" correct on the
+      // frontend by coincidence, when the real page happened to sit at a
+      // matching URL depth so the "../" segments cancelled back out to
+      // root; on any other page (or once a URL-rewriting plugin such as a
+      // CDN plugin string-concatenates its base URL onto this already-
+      // relative path instead of resolving it as a real path) it breaks,
+      // e.g. "https://cdn.example.tld../../../../../index/...". Disabling
+      // relative_urls (and remove_script_host, which has the same
+      // rewriting behavior for protocol/host-relative URLs) makes TinyMCE
+      // keep URLs exactly as entered, so a root-relative path is stored
+      // and read back unchanged.
+      relative_urls: false,
+      remove_script_host: false,
       setup: (editor) => {
         editor.on('init', () => {
           this._editor = editor;
