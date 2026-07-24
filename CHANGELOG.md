@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.0.7
+- **Fixed**: the toolbar's "..." overflow button (shown when the toolbar doesn't fit in one row) opened a dropdown that closed itself almost instantly, making it unusable. TinyMCE's default `toolbar_mode: 'floating'` relies on detecting clicks "outside" the toolbar to auto-close the overflow drawer, but that detection isn't Shadow DOM-aware: since the editor runs inside a Shadow Root (it's a Web Component), the browser retargets `event.target` to the shadow host for any click TinyMCE's (outside-the-tree) listener observes, so every click — even inside the drawer itself — was misread as "outside" and closed it. Switched to `toolbar_mode: 'wrap'`, which shows overflow buttons on an extra toolbar row instead of a floating panel, sidestepping the faulty check entirely.
+- **Fixed** (#18): a root-relative image/link path (e.g. `/index/_about/photo.jpg`) entered in the Image or Link dialog came back mangled into an excessively "relativized" path (e.g. `../../../../../index/_about/photo.jpg`) and was saved to the page's markdown in that broken form. TinyMCE's `relative_urls` option defaults to `true` and, since `document_base_url` wasn't set either, rewrote the URL relative to the *Admin Next editing page's own URL* rather than the frontend page the content is actually rendered on. This happened to still resolve correctly on the frontend only when the real page's URL depth coincidentally matched the admin route's depth; it broke on other pages, and broke more visibly when combined with a third-party CDN/URL-rewriting plugin that concatenates its base URL onto the (already relative) path instead of resolving it, producing a malformed host (e.g. `https://cdn.example.tld../../../../../index/...`). `relative_urls` and `remove_script_host` are now both disabled, so URLs are stored exactly as entered.
+
 ## 2.0.6 
 Fix Source widow obscured by page title
 https://github.com/PeopleInside/modern-editor/issues/16
