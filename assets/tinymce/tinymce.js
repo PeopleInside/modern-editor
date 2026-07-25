@@ -5593,7 +5593,7 @@
                     if (str) {
                         str = decode(str);
                         // Force strings into single quote format
-                        return `'` + str.replace(/\'/g, `\\'`) + `'`;
+                        return `'` + str.replace(/\\/g, `\\\\`).replace(/\'/g, `\\'`) + `'`;
                     }
                     url = decode(url || url2 || url3 || '');
                     if (!settings.allow_script_urls) {
@@ -5610,7 +5610,7 @@
                         url = urlConverter.call(urlConverterScope, url, 'style');
                     }
                     // Output new URL format
-                    return `url('` + url.replace(/\'/g, `\\'`) + `')`;
+                    return `url('` + url.replace(/\\/g, `\\\\`).replace(/\'/g, `\\'`) + `')`;
                 };
                 if (css) {
                     css = css.replace(/[\u0000-\u001F]/g, '');
@@ -24312,7 +24312,7 @@
                 return value.replace(/(<!--\[CDATA\[|\]\]-->)/g, '\n')
                     .replace(/^[\r\n]*|[\r\n]*$/g, '')
                     .replace(/^\s*((<!--)?(\s*\/\/)?\s*<!\[CDATA\[|(<!--\s*)?\/\*\s*<!\[CDATA\[\s*\*\/|(\/\/)?\s*<!--|\/\*\s*<!--\s*\*\/)\s*[\r\n]*/gi, '')
-                    .replace(/\s*(\/\*\s*\]\]>\s*\*\/(-->)?|\s*\/\/\s*\]\]>(-->)?|\/\/\s*(-->)?|\]\]>|\/\*\s*-->\s*\*\/|\s*-->\s*)\s*$/g, '');
+                    .replace(/\s*(\/\*\s*\]\]>\s*\*\/(--!?>)?|\s*\/\/\s*\]\]>(--!?>)?|\/\/\s*(--!?>)?|\]\]>|\/\*\s*--!?>\s*\*\/|\s*--!?>\s*)\s*$/g, '');
             };
             let i = nodes.length;
             while (i--) {
