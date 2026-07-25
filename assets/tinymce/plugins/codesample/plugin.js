@@ -2236,13 +2236,13 @@
     	Prism.languages.insertBefore('csharp', 'string', {
     		'interpolation-string': [
     			{
-    				pattern: re(/(^|[^\\])(?:\$@|@\$)"(?:[^"{]|""|\{\{|<<0>>)*"/.source, [mInterpolation]),
+    				pattern: re(/(^|[^\\])(?:\$@|@\$)"(?:[^"{]|""|\{\{)*(?:<<0>>(?:[^"{]|""|\{\{)*)*"/.source, [mInterpolation]),
     				lookbehind: true,
     				greedy: true,
     				inside: createInterpolationInside(mInterpolation, mInterpolationRound),
     			},
     			{
-    				pattern: re(/(^|[^@\\])\$"(?:\\.|[^\\"{]|\{\{|<<0>>)*"/.source, [sInterpolation]),
+    				pattern: re(/(^|[^@\\])\$"(?:\\.|[^\\"{]|\{\{)*(?:<<0>>(?:\\.|[^\\"{]|\{\{)*)*"/.source, [sInterpolation]),
     				lookbehind: true,
     				greedy: true,
     				inside: createInterpolationInside(sInterpolation, sInterpolationRound),
