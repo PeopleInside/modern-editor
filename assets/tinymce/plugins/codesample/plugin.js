@@ -1955,6 +1955,7 @@
 
     	// types
     	var generic = nested(/<(?:[^<>;=+\-*/%&|^]|<<self>>)*>/.source, 2); // the idea behind the other forbidden characters is to prevent false positives. Same for tupleElement.
+    	// Matches up to two levels of nested parentheses, consistent with previous nested(..., 2) behavior.
     	var nestedRound = /\([^()]*(?:\([^()]*\)[^()]*)*\)/.source;
     	var name = /@?\b[A-Za-z_]\w*\b/.source;
     	var genericName = replace(/<<0>>(?:\s*<<1>>)?/.source, [name, generic]);
@@ -2235,13 +2236,13 @@
     	Prism.languages.insertBefore('csharp', 'string', {
     		'interpolation-string': [
     			{
-    				pattern: re(/(^|[^\\])(?:\$@|@\$)"(?:[^"]|"")*"/.source, [mInterpolation]),
+    				pattern: re(/(^|[^\\])(?:\$@|@\$)"(?:[^"{]|""|\{\{|<<0>>)*"/.source, [mInterpolation]),
     				lookbehind: true,
     				greedy: true,
     				inside: createInterpolationInside(mInterpolation, mInterpolationRound),
     			},
     			{
-    				pattern: re(/(^|[^@\\])\$"(?:\\.|[^"\\])*"/.source, [sInterpolation]),
+    				pattern: re(/(^|[^@\\])\$"(?:\\.|[^\\"{]|\{\{|<<0>>)*"/.source, [sInterpolation]),
     				lookbehind: true,
     				greedy: true,
     				inside: createInterpolationInside(sInterpolation, sInterpolationRound),
