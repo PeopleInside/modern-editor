@@ -854,8 +854,27 @@ class TinyMCEField extends HTMLElement {
       // rewriting behavior for protocol/host-relative URLs) makes TinyMCE
       // keep URLs exactly as entered, so a root-relative path is stored
       // and read back unchanged.
+      //
+      // Fix (#18 follow-up): disabling relative_urls alone wasn't enough.
+      // `convert_urls` is a *separate* TinyMCE option (also on by default)
+      // that still ran and, per TinyMCE's own docs, "convert[s] URLs to be
+      // relative or absolute, depending on the relative_urls option" — so
+      // with relative_urls now false, convert_urls kept firing but flipped
+      // to absolutizing every URL instead: it resolved the root-relative
+      // path against `document_base_url` (again defaulting to the current
+      // page, e.g. whatever prototype/staging domain Admin Next happens to
+      // be running on) and saved that as a full "https://<current-domain>
+      // /index/_about/chris-lowe.jpg" URL. That silently baked the editing
+      // environment's own domain into the content, breaking the same
+      // edit-on-prototype/copy-to-live workflow the original fix was meant
+      // to protect, and defeating URL-rewriting plugins (e.g. a CDN
+      // plugin) that only rewrite root-relative paths and pass already-
+      // absolute URLs through untouched. Disabling convert_urls too makes
+      // TinyMCE leave every URL completely untouched, so the root-relative
+      // path the user actually typed is what gets stored.
       relative_urls: false,
       remove_script_host: false,
+      convert_urls: false,
       // Fix: right-clicking inside the editor's text area always opened
       // TinyMCE's own context menu (with e.g. a "Link" entry), which not
       // only hid the browser's native context menu but, since it's a

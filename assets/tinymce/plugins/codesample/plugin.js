@@ -1,5 +1,5 @@
 /**
- * TinyMCE version 8.7.0 (2026-07-01)
+ * TinyMCE version 8.8.1 (2026-07-22)
  */
 
 (function () {
@@ -1955,8 +1955,7 @@
 
     	// types
     	var generic = nested(/<(?:[^<>;=+\-*/%&|^]|<<self>>)*>/.source, 2); // the idea behind the other forbidden characters is to prevent false positives. Same for tupleElement.
-    	// Matches up to two levels of nested parentheses, consistent with previous nested(..., 2) behavior.
-    	var nestedRound = /\([^()]*(?:\([^()]*\)[^()]*)*\)/.source;
+    	var nestedRound = nested(/\((?:[^()]|<<self>>)*\)/.source, 2);
     	var name = /@?\b[A-Za-z_]\w*\b/.source;
     	var genericName = replace(/<<0>>(?:\s*<<1>>)?/.source, [name, generic]);
     	var identifier = replace(/(?!<<0>>)<<1>>(?:\s*\.\s*<<1>>)*/.source, [nonTypeKeywords, genericName]);
@@ -2236,13 +2235,13 @@
     	Prism.languages.insertBefore('csharp', 'string', {
     		'interpolation-string': [
     			{
-    				pattern: re(/(^|[^\\])(?:\$@|@\$)"(?:<<0>>|""|\{\{|[^"{<]|<(?![<{]))*"/.source, [mInterpolation]),
+    				pattern: re(/(^|[^\\])(?:\$@|@\$)"(?:""|\\[\s\S]|\{\{|<<0>>|[^\\{"])*"/.source, [mInterpolation]),
     				lookbehind: true,
     				greedy: true,
     				inside: createInterpolationInside(mInterpolation, mInterpolationRound),
     			},
     			{
-    				pattern: re(/(^|[^@\\])\$"(?:<<0>>|\\.|[^\\"{<]|\{\{|<(?![<{]))*"/.source, [sInterpolation]),
+    				pattern: re(/(^|[^@\\])\$"(?:\\.|\{\{|<<0>>|[^\\"{])*"/.source, [sInterpolation]),
     				lookbehind: true,
     				greedy: true,
     				inside: createInterpolationInside(sInterpolation, sInterpolationRound),

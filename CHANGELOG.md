@@ -1,5 +1,8 @@
 # Changelog
 
+## 2.1.0
+- **Fixed** (#18 follow-up): a root-relative image/link path (e.g. `/index/_about/chris-lowe.jpg`) was, since 2.0.7's fix for the same issue, saved back as a full absolute URL on whatever domain Admin Next happened to be running on (e.g. a staging/prototype site), instead of being kept as entered. 2.0.7 disabled TinyMCE's `relative_urls` option to stop root-relative paths from being mangled into deeply "relativized" ones, but left `convert_urls` (a separate option, also on by default) enabled — and per TinyMCE's own behavior, `convert_urls` converts every URL to be relative *or absolute* depending on `relative_urls`, so once `relative_urls` was false it started resolving root-relative paths against the current page's own domain and saving that instead. This silently baked the editing environment's domain into the page content (breaking an edit-on-prototype/copy-to-live workflow) and defeated URL-rewriting plugins such as a CDN plugin, which only rewrite root-relative paths and pass already-absolute URLs through untouched. `convert_urls` is now also disabled, so TinyMCE leaves URLs completely untouched and stores the root-relative path exactly as typed.
+
 ## 2.0.9
 Various security fixes
 
