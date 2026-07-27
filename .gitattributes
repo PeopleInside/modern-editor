@@ -1,0 +1,11 @@
+# GitHub Linguist & Code Statistics Exclusions
+# Tells GitHub to ignore bundled third-party libraries and editor vendor files
+# from repository language statistics, diffs, and security scan heuristics.
+
+/assets/tinymce/** linguist-vendored linguist-generated -diff -stat
+/assets/vendor/** linguist-vendored linguist-generated -diff -stat
+/vendor/** linguist-vendored linguist-generated -diff -stat
+
+*.min.js linguist-vendored linguist-generated -diff -stat
+*.umd.js linguist-vendored -diff -stat
+*.bundle.js linguist-vendored -diff -stat

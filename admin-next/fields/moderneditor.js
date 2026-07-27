@@ -88,11 +88,82 @@ function loadMarkdownLibraries(dCfg) {
   return markdownLibrariesPromise;
 }
 
+function normalizeLinkUrl(url) {
+  if (!url || typeof url !== 'string') return url;
+  const trimmed = url.trim();
+  if (!trimmed || /^(https?:\/\/|\/|\.\/|\.\.\/|#|[a-z0-9+-.]+:\/\/|[a-z0-9+-]+:)/i.test(trimmed)) {
+    return trimmed;
+  }
+  return 'https://' + trimmed;
+}
+
+function normalizeLinksInHtml(html) {
+  if (!html || typeof html !== 'string' || !html.includes('<a ')) return html;
+  try {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, 'text/html');
+    const links = doc.querySelectorAll('a[href]');
+    let changed = false;
+    links.forEach(a => {
+      const href = a.getAttribute('href');
+      if (href) {
+        const norm = normalizeLinkUrl(href);
+        if (norm !== href) {
+          a.setAttribute('href', norm);
+          changed = true;
+        }
+      }
+    });
+    return changed ? doc.body.innerHTML : html;
+  } catch (e) {
+    return html;
+  }
+}
+
+function restoreMarkdownExtraAttrs(md) {
+  if (!md || typeof md !== 'string') return md;
+  let processed = md.replace(/(!?)\[([^\]]*)\]\(([^)]+)\)\{:?\s*([^}]+)\}/g, (match, isImg, text, urlAndTitle, attrsStr) => {
+    let url = urlAndTitle.trim();
+    let title = '';
+    const titleMatch = url.match(/^(\S+)\s+(["'])(.*)\2$/);
+    if (titleMatch) {
+      url = titleMatch[1];
+      title = titleMatch[3];
+    }
+    if (isImg !== '!') {
+      url = normalizeLinkUrl(url);
+    }
+    const attrPairs = [];
+    const attrRegex = /([a-zA-Z0-9_-]+)(?:=(["']?)(.*?)\2)?(?=\s|$)/g;
+    let m;
+    while ((m = attrRegex.exec(attrsStr)) !== null) {
+      const name = m[1];
+      const val = m[3] !== undefined ? m[3] : name;
+      attrPairs.push(`${name}="${val}"`);
+    }
+    const attrHtml = attrPairs.length > 0 ? ' ' + attrPairs.join(' ') : '';
+    if (isImg === '!') {
+      return `<img src="${url}" alt="${text}"${title ? ` title="${title}"` : ''}${attrHtml} />`;
+    } else {
+      return `<a href="${url}"${title ? ` title="${title}"` : ''}${attrHtml}>${text}</a>`;
+    }
+  });
+
+  // Also normalize standard markdown links [text](url) that don't have extra attributes
+  processed = processed.replace(/(^|[^!])\[([^\]]*)\]\(([^)\s]+)(?:(\s+["'][^"']*["']))?\)/g, (match, prefix, text, url, title) => {
+    const cleanUrl = normalizeLinkUrl(url);
+    return `${prefix}[${text}](${cleanUrl}${title || ''})`;
+  });
+
+  return processed;
+}
+
 function mdToHtml(md) {
   if (!md) return '';
   if (!window.marked) return md;
 
-  let html = window.marked.parse ? window.marked.parse(md) : window.marked(md);
+  const processedMd = restoreMarkdownExtraAttrs(md);
+  let html = window.marked.parse ? window.marked.parse(processedMd) : window.marked(processedMd);
 
   // Post-process HTML to identify GitHub Alerts and render beautiful blockquote styles
   try {
@@ -124,6 +195,7 @@ function mdToHtml(md) {
 
 function htmlToMd(html) {
   if (!html) return '';
+  html = normalizeLinksInHtml(html);
   if (!window.TurndownService) return html;
 
   const turndownService = new window.TurndownService({
@@ -190,6 +262,71 @@ function htmlToMd(html) {
 
       const resultLines = [`[!${alertType}]`, ...cleanedLines];
       return '\n\n' + resultLines.map(l => '> ' + l).join('\n') + '\n\n';
+    }
+  });
+
+  turndownService.addRule('gravLinks', {
+    filter: function (node) {
+      return node.nodeName === 'A' && node.getAttribute('href');
+    },
+    replacement: function (content, node) {
+      const rawHref = node.getAttribute('href') || '';
+      const href = normalizeLinkUrl(rawHref);
+      const title = node.getAttribute('title');
+      const target = node.getAttribute('target');
+      const rel = node.getAttribute('rel');
+      const className = node.getAttribute('class');
+      const id = node.getAttribute('id');
+      const download = node.getAttribute('download');
+      const style = node.getAttribute('style');
+
+      const hasExtraAttrs = target || rel || className || id || download || style;
+      if (!hasExtraAttrs) {
+        return '[' + content + '](' + href + (title ? ' "' + title + '"' : '') + ')';
+      }
+
+      let htmlAttr = ' href="' + href + '"';
+      if (title) htmlAttr += ' title="' + title + '"';
+      if (target) htmlAttr += ' target="' + target + '"';
+      if (rel) htmlAttr += ' rel="' + rel + '"';
+      if (className) htmlAttr += ' class="' + className + '"';
+      if (id) htmlAttr += ' id="' + id + '"';
+      if (download) htmlAttr += ' download="' + download + '"';
+      if (style) htmlAttr += ' style="' + style + '"';
+
+      return '<a' + htmlAttr + '>' + content + '</a>';
+    }
+  });
+
+  turndownService.addRule('gravImages', {
+    filter: function (node) {
+      return node.nodeName === 'IMG' && node.getAttribute('src');
+    },
+    replacement: function (content, node) {
+      const src = node.getAttribute('src') || '';
+      const alt = node.getAttribute('alt') || '';
+      const title = node.getAttribute('title');
+      const width = node.getAttribute('width');
+      const height = node.getAttribute('height');
+      const className = node.getAttribute('class');
+      const id = node.getAttribute('id');
+      const style = node.getAttribute('style');
+
+      const hasExtraAttrs = width || height || className || id || (style && style.includes('text-align'));
+      if (!hasExtraAttrs) {
+        return '![' + alt + '](' + src + (title ? ' "' + title + '"' : '') + ')';
+      }
+
+      let htmlAttr = ' src="' + src + '"';
+      if (alt) htmlAttr += ' alt="' + alt + '"';
+      if (title) htmlAttr += ' title="' + title + '"';
+      if (width) htmlAttr += ' width="' + width + '"';
+      if (height) htmlAttr += ' height="' + height + '"';
+      if (className) htmlAttr += ' class="' + className + '"';
+      if (id) htmlAttr += ' id="' + id + '"';
+      if (style) htmlAttr += ' style="' + style + '"';
+
+      return '<img' + htmlAttr + ' />';
     }
   });
 
@@ -731,6 +868,26 @@ class TinyMCEField extends HTMLElement {
     textarea.style.display = '';
     this.shadowRoot.querySelector('.loading')?.remove();
 
+    const updateInfo = window.__MODERN_EDITOR_UPDATE_INFO__ || (this._dCfg && this._dCfg.update_info);
+    if (updateInfo && updateInfo.hasUpdate && !updateInfo.autoUpdate) {
+      const dismissedVer = localStorage.getItem('modern_editor_dismissed_ver');
+      if (dismissedVer !== updateInfo.latestVersion) {
+        const wrap = this.shadowRoot.querySelector('.wrap');
+        if (wrap && !wrap.querySelector('.update-banner')) {
+          const banner = document.createElement('div');
+          banner.className = 'update-banner';
+          banner.style.cssText = 'padding: 10px 14px; background: #fffbeb; border-bottom: 1px solid #fef3c7; color: #92400e; font-size: 13px; display: flex; justify-content: space-between; align-items: center;';
+          banner.innerHTML = `<span><strong>${updateInfo.bannerTitle || 'Modern Editor: Aggiornamenti disponibili'}:</strong> ${updateInfo.bannerMessage || 'Sono disponibili nuove versioni dell\'editor o delle librerie Markdown.'}</span> <a href="#" style="color: #b45309; font-weight: 600; text-decoration: underline; margin-left: 12px; white-space: nowrap;">${updateInfo.dismissLabel || 'Nascondi fino a una nuova versione'}</a>`;
+          banner.querySelector('a').addEventListener('click', (e) => {
+            e.preventDefault();
+            localStorage.setItem('modern_editor_dismissed_ver', updateInfo.latestVersion);
+            banner.remove();
+          });
+          wrap.insertBefore(banner, wrap.firstChild);
+        }
+      }
+    }
+
     const cfg = this._cfg();
 
     const useItalian = detectItalianLocale(this._dCfg);
@@ -758,6 +915,21 @@ class TinyMCEField extends HTMLElement {
       menubar: cfg.menubar,
       plugins: cfg.plugins,
       toolbar: cfg.toolbar,
+      extended_valid_elements: 'a[href|target|rel|title|class|id|style|download|data-*],img[src|alt|title|width|height|class|id|style|data-*]',
+      link_default_protocol: 'https',
+      link_assume_external_targets: 'https',
+      link_target_list: [
+        { title: 'None', value: '' },
+        { title: 'New window', value: '_blank' },
+        { title: 'Same window', value: '_self' }
+      ],
+      link_rel_list: [
+        { title: 'None', value: '' },
+        { title: 'No Referrer', value: 'noreferrer' },
+        { title: 'No Opener', value: 'noopener' },
+        { title: 'No Referrer No Opener', value: 'noreferrer noopener' },
+        { title: 'Nofollow', value: 'nofollow' }
+      ],
       // Fix: TinyMCE's CSS-only "fake" fullscreen (position: fixed +
       // z-index: 1200) still rendered *underneath* Admin Next's own sticky
       // page header in some builds. That header sits in an ancestor further

@@ -565,7 +565,101 @@ YAML;
             }
         }
 
+        $this->performPeriodicUpdateCheck(true);
+
         return ['status' => $status, 'message' => $msg, 'html' => $this->getLocalStatusHtml($langOverride)];
+    }
+
+    public function getCachedUpdateInfo(): array
+    {
+        $pluginDir = $this->grav['locator']->findResource('plugin://' . $this->name, true, true);
+        $cacheFile = $pluginDir . '/assets/.updates-cache.json';
+        if (file_exists($cacheFile)) {
+            $raw = @file_get_contents($cacheFile);
+            if ($raw) {
+                $data = @json_decode($raw, true);
+                if (is_array($data)) {
+                    return $data;
+                }
+            }
+        }
+        return [];
+    }
+
+    public function performPeriodicUpdateCheck(bool $force = false): void
+    {
+        if (!$this->isAdminContext()) {
+            return;
+        }
+
+        $pluginDir = $this->grav['locator']->findResource('plugin://' . $this->name, true, true);
+        $cacheFile = $pluginDir . '/assets/.updates-cache.json';
+
+        $cacheData = [];
+        if (file_exists($cacheFile)) {
+            $raw = @file_get_contents($cacheFile);
+            if ($raw) {
+                $cacheData = @json_decode($raw, true) ?: [];
+            }
+        }
+
+        $now = time();
+        $lastCheck = $cacheData['last_check'] ?? 0;
+        if (!$force && ($now - $lastCheck) < 86400 && !empty($cacheData['tinymce'])) {
+            $this->applyAutoUpdateIfNeeded($cacheData);
+            return;
+        }
+
+        $latestTinyMce = $this->fetchLatestTinyMCEVersion() ?: ($cacheData['tinymce'] ?? null);
+        $latestMarked = $this->fetchLatestNpmVersion('marked') ?: ($cacheData['marked'] ?? null);
+        $latestTurndown = $this->fetchLatestNpmVersion('turndown') ?: ($cacheData['turndown'] ?? null);
+
+        if (!$latestTinyMce) {
+            return;
+        }
+
+        $cacheData = [
+            'last_check' => $now,
+            'tinymce' => $latestTinyMce,
+            'marked' => $latestMarked,
+            'turndown' => $latestTurndown
+        ];
+
+        @file_put_contents($cacheFile, json_encode($cacheData, JSON_PRETTY_PRINT));
+
+        if (isset($this->grav['session'])) {
+            $this->grav['session']->modern_editor_latest_version = $latestTinyMce;
+            if ($latestMarked) $this->grav['session']->modern_editor_latest_marked_version = $latestMarked;
+            if ($latestTurndown) $this->grav['session']->modern_editor_latest_turndown_version = $latestTurndown;
+        }
+
+        $this->applyAutoUpdateIfNeeded($cacheData);
+    }
+
+    private function applyAutoUpdateIfNeeded(array $cacheData): void
+    {
+        $autoUpdate = (bool) $this->config->get('plugins.modern-editor.auto_update', true);
+        if (!$autoUpdate) {
+            return;
+        }
+
+        $editorSource = $this->config->get('plugins.modern-editor.editor_source', 'local');
+        if ($editorSource === 'local') {
+            $installedTinyMce = $this->getInstalledTinyMCEVersion();
+            $latestTinyMce = $cacheData['tinymce'] ?? null;
+            if ($latestTinyMce && $installedTinyMce && $installedTinyMce !== $latestTinyMce) {
+                $this->downloadAndExtractTinyMCE($latestTinyMce);
+            }
+
+            $markdownEnabled = (bool) $this->config->get('plugins.modern-editor.markdown_enabled', true);
+            if ($this->config->get('system.pages.markdown.enabled') === false) {
+                $markdownEnabled = false;
+            }
+
+            if ($markdownEnabled) {
+                $this->downloadMarkdownLibraries($cacheData['marked'] ?? null, $cacheData['turndown'] ?? null);
+            }
+        }
     }
 
     public function removeTinyMceLocalAction(?string $langOverride = null): array
@@ -652,8 +746,35 @@ YAML;
             $markdownEnabled = false;
         }
 
+        $updates = $this->getCachedUpdateInfo();
+        $autoUpdate = (bool) $this->config->get('plugins.modern-editor.auto_update', true);
+        $latestTinyMce = $updates['tinymce'] ?? null;
+        $installedTinyMce = $this->getInstalledTinyMCEVersion();
+        $editorSource = $this->config->get('plugins.modern-editor.editor_source', 'local');
+
+        $hasUpdate = false;
+        if ($latestTinyMce && $installedTinyMce && $installedTinyMce !== $latestTinyMce) {
+            $hasUpdate = true;
+        } elseif ($latestTinyMce && $editorSource !== 'local' && $latestTinyMce !== '7.4.0') {
+            $hasUpdate = true;
+        }
+
+        $lang = $this->getUiLanguage($langOverride);
+        $updateInfo = [
+            'autoUpdate' => $autoUpdate,
+            'hasUpdate' => $hasUpdate,
+            'latestVersion' => $latestTinyMce ?: '7.4.0',
+            'bannerTitle' => $lang === 'it' ? 'Modern Editor: Aggiornamenti disponibili' : 'Modern Editor: Updates Available',
+            'bannerMessage' => $lang === 'it'
+                ? 'Sono disponibili nuove versioni dell\'editor o delle librerie Markdown. L\'aggiornamento può risolvere bug o problemi di sicurezza.'
+                : 'New versions of the editor or markdown libraries are available. Updating may resolve bugs and security issues.',
+            'dismissLabel' => $lang === 'it' ? 'Nascondi fino a una nuova versione' : 'Dismiss until next update'
+        ];
+
         return [
-            'editor_source' => $this->config->get('plugins.modern-editor.editor_source', 'local'),
+            'editor_source' => $editorSource,
+            'auto_update' => $autoUpdate,
+            'update_info' => $updateInfo,
             'editor_url' => $this->getEditorScriptUrl(),
             'marked_url' => $mdUrls['marked'],
             'turndown_url' => $mdUrls['turndown'],
@@ -661,7 +782,7 @@ YAML;
             // Same source of truth as the inline __MODERN_EDITOR_ADMIN_LANG__
             // global — provided here too since the REST /config endpoint is
             // fetched explicitly and doesn't depend on inline JS having run.
-            'lang' => $this->getUiLanguage($langOverride),
+            'lang' => $lang,
             'height' => $this->config->get('plugins.modern-editor.height'),
             'menubar' => $this->config->get('plugins.modern-editor.menubar'),
             'plugins' => $this->config->get('plugins.modern-editor.plugins'),
@@ -690,6 +811,10 @@ YAML;
         $latestVersion = null;
         if (isset($this->grav['session'])) {
             $latestVersion = $this->grav['session']->modern_editor_latest_version ?? null;
+        }
+        if (!$latestVersion) {
+            $updates = $this->getCachedUpdateInfo();
+            $latestVersion = $updates['tinymce'] ?? null;
         }
 
         $adminBaseUrl = $this->getAdminBaseUrl() . '/plugins/modern-editor';
@@ -847,6 +972,21 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
 </style>
 
 <div id='modern-editor-status-card' style='font-family: system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, sans-serif;'>";
+
+        $autoUpdate = (bool) $this->config->get('plugins.modern-editor.auto_update', true);
+        if (!$autoUpdate && $latestVersion && (($editorSource === 'local' && $installedVersion && $installedVersion !== $latestVersion) || ($editorSource === 'cdn' && $latestVersion !== '7.4.0'))) {
+            $title = $lang === 'it' ? ' Modern Editor: Aggiornamenti disponibili' : ' Modern Editor: Updates Available';
+            $msg = $lang === 'it' ? 'Sono disponibili nuove versioni dell\'editor o delle librerie Markdown. L\'aggiornamento può risolvere bug o problemi di sicurezza.' : 'New versions of the editor or markdown libraries are available. Updating may resolve bugs and security issues.';
+            $dismissText = $lang === 'it' ? 'Nascondi fino a una nuova versione' : 'Dismiss until next update';
+            $html .= "<div class='modern-editor-update-alert' data-latest='{$latestVersionEsc}' style='padding: 14px 18px; margin-bottom: 16px; border-radius: 4px; border-left: 4px solid #f59e0b; background-color: #fffbeb; color: #92400e; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;'>";
+            $html .= "<div><strong style='font-size: 14px;'>{$title}</strong><p style='margin: 4px 0 0 0; font-size: 13px; line-height: 1.4;'>{$msg}</p></div>";
+            $html .= "<div style='display: flex; gap: 12px; align-items: center;'><a href='#' class='modern-editor-dismiss-btn' style='color: #b45309; font-size: 13px; text-decoration: underline; white-space: nowrap; font-weight: 600;'>{$dismissText}</a>";
+            if ($editorSource === 'local') {
+                $html .= "<a href='{$reinstallUrlEsc}&version={$latestVersionEsc}' class='button button-small' style='background: #f59e0b; color: #fff; text-decoration: none; padding: 6px 12px; border-radius: 4px; font-size: 13px; font-weight: bold;'>Aggiorna ora</a>";
+            }
+            $html .= "</div></div>";
+            $html .= "<script>document.querySelectorAll('.modern-editor-dismiss-btn').forEach(btn => { const alert = btn.closest('.modern-editor-update-alert'); if (localStorage.getItem('modern_editor_dismissed_ver') === alert.getAttribute('data-latest')) { alert.style.display = 'none'; } btn.addEventListener('click', (e) => { e.preventDefault(); localStorage.setItem('modern_editor_dismissed_ver', alert.getAttribute('data-latest')); alert.style.display = 'none'; }); });</script>";
+        }
 
         if ($editorSource === 'cdn') {
             // CDN is selected
@@ -1579,10 +1719,12 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
      * licensed, so self-hosting is not a licensing concern; only
      * TinyMCE's own licensing required special handling (see README).
      */
-    private function downloadMarkdownLibraries(): bool
+    private function downloadMarkdownLibraries(?string $markedVersion = null, ?string $turndownVersion = null): bool
     {
-        $markedOk = $this->downloadNpmBrowserFile('marked', self::MARKED_VERSION, 'marked.umd.js');
-        $turndownOk = $this->downloadNpmBrowserFile('turndown', self::TURNDOWN_VERSION, 'turndown.js');
+        $markedVer = $markedVersion ?: self::MARKED_VERSION;
+        $turndownVer = $turndownVersion ?: self::TURNDOWN_VERSION;
+        $markedOk = $this->downloadNpmBrowserFile('marked', $markedVer, 'marked.umd.js');
+        $turndownOk = $this->downloadNpmBrowserFile('turndown', $turndownVer, 'turndown.js');
 
         return $markedOk && $turndownOk;
     }
@@ -1596,8 +1738,17 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
      */
     public function getMarkdownLibraryUrls(): array
     {
-        $markedCdn = 'https://cdn.jsdelivr.net/npm/marked@' . self::MARKED_VERSION . '/lib/marked.umd.js';
-        $turndownCdn = 'https://cdn.jsdelivr.net/npm/turndown@' . self::TURNDOWN_VERSION . '/dist/turndown.js';
+        $markedVer = self::MARKED_VERSION;
+        $turndownVer = self::TURNDOWN_VERSION;
+        $autoUpdate = (bool) $this->config->get('plugins.modern-editor.auto_update', true);
+        if ($autoUpdate) {
+            $updates = $this->getCachedUpdateInfo();
+            if (!empty($updates['marked'])) $markedVer = $updates['marked'];
+            if (!empty($updates['turndown'])) $turndownVer = $updates['turndown'];
+        }
+
+        $markedCdn = 'https://cdn.jsdelivr.net/npm/marked@' . $markedVer . '/lib/marked.umd.js';
+        $turndownCdn = 'https://cdn.jsdelivr.net/npm/turndown@' . $turndownVer . '/dist/turndown.js';
 
         $editorSource = $this->config->get('plugins.modern-editor.editor_source', 'local');
         if ($editorSource !== 'local') {
@@ -1613,13 +1764,13 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
         $markedLocal = $vendorDir . '/marked.umd.js';
         $markedUrl = $markedCdn;
         if (file_exists($markedLocal)) {
-            $markedUrl = $baseUrl . '/' . $pluginPath . '/assets/vendor/marked.umd.js?v=' . rawurlencode(self::MARKED_VERSION);
+            $markedUrl = $baseUrl . '/' . $pluginPath . '/assets/vendor/marked.umd.js?v=' . rawurlencode($markedVer);
         }
 
         $turndownLocal = $vendorDir . '/turndown.js';
         $turndownUrl = $turndownCdn;
         if (file_exists($turndownLocal)) {
-            $turndownUrl = $baseUrl . '/' . $pluginPath . '/assets/vendor/turndown.js?v=' . rawurlencode(self::TURNDOWN_VERSION);
+            $turndownUrl = $baseUrl . '/' . $pluginPath . '/assets/vendor/turndown.js?v=' . rawurlencode($turndownVer);
         }
 
         return ['marked' => $markedUrl, 'turndown' => $turndownUrl];
@@ -1678,6 +1829,8 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
             return;
         }
 
+        $this->performPeriodicUpdateCheck();
+
         // Ensure local assets exist BEFORE computing the URLs we're about
         // to inject into this exact page response. This must run first,
         // in this method — not in onPagesInitialized, which fires later
@@ -1700,6 +1853,32 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
         // Italian just because the browser was set to Italian, regardless
         // of what language the Grav admin panel itself was configured for.
         $this->grav['assets']->addInlineJs("window.__MODERN_EDITOR_ADMIN_LANG__ = " . json_encode($this->getUiLanguage()) . ";");
+
+        $updates = $this->getCachedUpdateInfo();
+        $autoUpdate = (bool) $this->config->get('plugins.modern-editor.auto_update', true);
+        $latestTinyMce = $updates['tinymce'] ?? null;
+        $installedTinyMce = $this->getInstalledTinyMCEVersion();
+        $editorSource = $this->config->get('plugins.modern-editor.editor_source', 'local');
+
+        $hasUpdate = false;
+        if ($latestTinyMce && $installedTinyMce && $installedTinyMce !== $latestTinyMce) {
+            $hasUpdate = true;
+        } elseif ($latestTinyMce && $editorSource !== 'local' && $latestTinyMce !== '7.4.0') {
+            $hasUpdate = true;
+        }
+
+        $lang = $this->getUiLanguage();
+        $updateInfo = [
+            'autoUpdate' => $autoUpdate,
+            'hasUpdate' => $hasUpdate,
+            'latestVersion' => $latestTinyMce ?: '7.4.0',
+            'bannerTitle' => $lang === 'it' ? 'Modern Editor: Aggiornamenti disponibili' : 'Modern Editor: Updates Available',
+            'bannerMessage' => $lang === 'it'
+                ? 'Sono disponibili nuove versioni dell\'editor o delle librerie Markdown. L\'aggiornamento può risolvere bug o problemi di sicurezza.'
+                : 'New versions of the editor or markdown libraries are available. Updating may resolve bugs and security issues.',
+            'dismissLabel' => $lang === 'it' ? 'Nascondi fino a una nuova versione' : 'Dismiss until next update'
+        ];
+        $this->grav['assets']->addInlineJs("window.__MODERN_EDITOR_UPDATE_INFO__ = " . json_encode($updateInfo) . ";");
 
         $markdownEnabled = (bool) $this->config->get('plugins.modern-editor.markdown_enabled', true);
         if ($this->config->get('system.pages.markdown.enabled') === false) {
@@ -1822,6 +2001,14 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
             }
 
             return $url;
+        }
+
+        $autoUpdate = (bool) $this->config->get('plugins.modern-editor.auto_update', true);
+        if ($autoUpdate) {
+            $updates = $this->getCachedUpdateInfo();
+            if (!empty($updates['tinymce'])) {
+                return 'https://cdn.jsdelivr.net/npm/tinymce@' . $updates['tinymce'] . '/tinymce.min.js';
+            }
         }
 
         return 'https://cdn.jsdelivr.net/npm/tinymce@7/tinymce.min.js';

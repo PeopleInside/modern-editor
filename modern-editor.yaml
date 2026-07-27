@@ -3,6 +3,7 @@
 # This program is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License.
 
 enabled: true
+auto_update: true
 editor_source: local
 ui_language: auto
 markdown_enabled: true

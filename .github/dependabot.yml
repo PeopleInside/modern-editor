@@ -1,0 +1,11 @@
+version: 2
+updates:
+  # Maintain PHP Composer dependencies without flagging bundled frontend assets
+  - package-ecosystem: "composer"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 5
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]

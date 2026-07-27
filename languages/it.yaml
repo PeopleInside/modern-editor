@@ -1,6 +1,11 @@
 PLUGIN_MODERN_EDITOR:
   ENABLED: Attivo
   ENABLED_HELP: Abilita o disabilita l'editor visuale sul campo contenuto delle pagine.
+  AUTO_UPDATE: Controllo e aggiornamenti automatici
+  AUTO_UPDATE_HELP: "Verifica periodicamente gli aggiornamenti di TinyMCE, marked e turndown. Se attivo, aggiorna automaticamente i file locali o i riferimenti CDN. Se disattivato, mostra un banner di notifica quando sono disponibili aggiornamenti."
+  UPDATE_BANNER_TITLE: "Modern Editor: Aggiornamenti disponibili"
+  UPDATE_BANNER_MSG: "Sono disponibili nuove versioni dell'editor o delle librerie Markdown. L'aggiornamento può risolvere bug o problemi di sicurezza."
+  UPDATE_BANNER_DISMISS: "Nascondi fino a una nuova versione"
   EDITOR_SOURCE: Sorgente script editor
   EDITOR_SOURCE_HELP: Scegli se caricare l'editor da una CDN Cloud pubblica o utilizzare una versione ospitata localmente sul tuo server.
   UI_LANGUAGE: Lingua editor / interfaccia admin

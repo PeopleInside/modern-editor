@@ -1,0 +1,12 @@
+name: "Modern Editor CodeQL Exclusions"
+
+# Exclude third-party editor scripts (TinyMCE) and helper libraries (marked, turndown, PHP vendor)
+# from GitHub Advanced Security and CodeQL vulnerability scanning.
+paths-ignore:
+  - 'assets/tinymce/**'
+  - 'assets/vendor/**'
+  - 'vendor/**'
+  - '**.min.js'
+  - '**.umd.js'
+  - '**.bundle.js'
+  - 'node_modules/**'
