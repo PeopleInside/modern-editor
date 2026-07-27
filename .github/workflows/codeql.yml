@@ -1,4 +1,4 @@
-name: "CodeQL Vulnerability Scanning"
+name: "CodeQL Advanced"
 
 on:
   push:
@@ -6,21 +6,26 @@ on:
   pull_request:
     branches: [ "main", "master" ]
   schedule:
-    - cron: '0 0 * * 1'
+    - cron: '32 0 * * 0'
 
 jobs:
   analyze:
-    name: Analyze
+    name: Analyze (${{ matrix.language }})
     runs-on: ubuntu-latest
     permissions:
+      security-events: write
+      packages: read
       actions: read
       contents: read
-      security-events: write
 
     strategy:
       fail-fast: false
       matrix:
-        language: [ 'javascript-typescript' ]
+        include:
+        - language: actions
+          build-mode: none
+        - language: javascript-typescript
+          build-mode: none
 
     steps:
     - name: Checkout repository
@@ -30,6 +35,7 @@ jobs:
       uses: github/codeql-action/init@v4
       with:
         languages: ${{ matrix.language }}
+        build-mode: ${{ matrix.build-mode }}
         config-file: .github/codeql/codeql-config.yml
 
     - name: Perform CodeQL Analysis
