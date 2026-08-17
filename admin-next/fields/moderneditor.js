@@ -265,6 +265,121 @@ function htmlToMd(html) {
     }
   });
 
+  turndownService.addRule('gravSpans', {
+    filter: function (node) {
+      return node.nodeName === 'SPAN' && (
+        node.getAttribute('style') ||
+        node.getAttribute('class') ||
+        node.getAttribute('id') ||
+        node.getAttribute('title') ||
+        node.getAttribute('dir')
+      );
+    },
+    replacement: function (content, node) {
+      if (!content && !node.textContent) return '';
+      let htmlAttr = '';
+      if (node.attributes) {
+        for (const attr of node.attributes) {
+          htmlAttr += ' ' + attr.name + '="' + attr.value + '"';
+        }
+      }
+      return '<span' + htmlAttr + '>' + content + '</span>';
+    }
+  });
+
+  turndownService.addRule('gravFonts', {
+    filter: function (node) {
+      return node.nodeName === 'FONT' && (
+        node.getAttribute('color') ||
+        node.getAttribute('size') ||
+        node.getAttribute('face') ||
+        node.getAttribute('style') ||
+        node.getAttribute('class')
+      );
+    },
+    replacement: function (content, node) {
+      if (!content && !node.textContent) return '';
+      let htmlAttr = '';
+      if (node.attributes) {
+        for (const attr of node.attributes) {
+          htmlAttr += ' ' + attr.name + '="' + attr.value + '"';
+        }
+      }
+      return '<font' + htmlAttr + '>' + content + '</font>';
+    }
+  });
+
+  turndownService.addRule('gravHeadings', {
+    filter: ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'],
+    replacement: function (content, node) {
+      const hLevel = Number(node.nodeName.charAt(1));
+      const hasExtraAttrs = node.getAttribute('style') || node.getAttribute('class') || node.getAttribute('id');
+      if (!hasExtraAttrs) {
+        return '\n\n' + '#'.repeat(hLevel) + ' ' + content + '\n\n';
+      }
+      let htmlAttr = '';
+      if (node.attributes) {
+        for (const attr of node.attributes) {
+          htmlAttr += ' ' + attr.name + '="' + attr.value + '"';
+        }
+      }
+      return '\n\n<h' + hLevel + htmlAttr + '>' + content + '</h' + hLevel + '>\n\n';
+    }
+  });
+
+  turndownService.addRule('gravParagraphs', {
+    filter: function (node) {
+      return node.nodeName === 'P' && (
+        node.getAttribute('style') ||
+        node.getAttribute('class') ||
+        node.getAttribute('id')
+      );
+    },
+    replacement: function (content, node) {
+      let htmlAttr = '';
+      if (node.attributes) {
+        for (const attr of node.attributes) {
+          htmlAttr += ' ' + attr.name + '="' + attr.value + '"';
+        }
+      }
+      return '\n\n<p' + htmlAttr + '>' + content + '</p>\n\n';
+    }
+  });
+
+  turndownService.addRule('gravDivs', {
+    filter: function (node) {
+      return node.nodeName === 'DIV' && (
+        node.getAttribute('style') ||
+        node.getAttribute('class') ||
+        node.getAttribute('id')
+      );
+    },
+    replacement: function (content, node) {
+      if (!content.trim()) return '';
+      let htmlAttr = '';
+      if (node.attributes) {
+        for (const attr of node.attributes) {
+          htmlAttr += ' ' + attr.name + '="' + attr.value + '"';
+        }
+      }
+      return '\n\n<div' + htmlAttr + '>\n' + content + '\n</div>\n\n';
+    }
+  });
+
+  turndownService.addRule('gravInlineFormat', {
+    filter: ['u', 'mark', 'sub', 'sup', 'small', 'ins', 'abbr', 'kbd', 'cite'],
+    replacement: function (content, node) {
+      const tag = node.nodeName.toLowerCase();
+      let htmlAttr = '';
+      if (node.attributes) {
+        for (const attr of node.attributes) {
+          htmlAttr += ' ' + attr.name + '="' + attr.value + '"';
+        }
+      }
+      return '<' + tag + htmlAttr + '>' + content + '</' + tag + '>';
+    }
+  });
+
   turndownService.addRule('gravLinks', {
     filter: function (node) {
       return node.nodeName === 'A' && node.getAttribute('href');
@@ -1083,17 +1198,45 @@ class TinyMCEField extends HTMLElement {
         editor.on('FullscreenStateChanged', (e) => {
           this._setAuxSinkFullscreen(e.state);
         });
-        editor.on('change keyup undo redo', () => {
-          if (this._applying) return;
+        // Fix (#24): small actions (e.g. changing text/heading color, background
+        // color, alignment, or font size via the toolbar) did not trigger
+        // TinyMCE's `change` event until blur, and mouse actions don't fire `keyup`.
+        // Listen to all editing and command execution events so Admin Next
+        // immediately detects unsaved changes and highlights the Save button.
+        const notifyChange = () => {
+          if (this._applying || !this._ready) return;
           const html = editor.getContent();
           const isMdEnabled = this._field.markdown_enabled !== false && this._field.markdown_enabled !== 'false';
           const finalVal = isMdEnabled ? htmlToMd(html) : html;
-          this._value = finalVal;
-          this.dispatchEvent(new CustomEvent('change', {
-            detail: finalVal,
-            bubbles: true,
-          }));
-        });
+          if (finalVal !== this._value) {
+            this._value = finalVal;
+            const textarea = this.shadowRoot?.getElementById(this._editorId);
+            if (textarea) {
+              textarea.value = finalVal;
+            }
+            this.dispatchEvent(new CustomEvent('change', {
+              detail: finalVal,
+              bubbles: true,
+              composed: true,
+            }));
+            this.dispatchEvent(new CustomEvent('input', {
+              detail: finalVal,
+              bubbles: true,
+              composed: true,
+            }));
+          }
+        };
+
+        const handleEditorEvent = () => {
+          notifyChange();
+          if (typeof queueMicrotask === 'function') {
+            queueMicrotask(notifyChange);
+          } else {
+            setTimeout(notifyChange, 0);
+          }
+        };
+
+        editor.on('change input keyup undo redo ExecCommand SetContent NodeChange Paste Cut ClearUndos dirty', handleEditorEvent);
       },
     };
 

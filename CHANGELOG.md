@@ -1,5 +1,8 @@
 # Changelog
 
+## 2.1.2
+- **Fixed** (#24): toolbar and formatting actions (such as changing text color, background color, font size, or alignment) did not notify Admin Next of unsaved changes, leaving the Save button disabled and preventing saving via Ctrl+S. TinyMCE's event listeners now monitor `ExecCommand`, `SetContent`, `NodeChange`, `input`, `Paste`, and `Cut` in addition to `change`/`keyup`, and Turndown now preserves inline styling and formatting tags (`<span>`, `<font>`, `<p>`, `<h1>`..`<h6>`, `<div>`, `<u>`, `<mark>`, `<sub>`, `<sup>`, `<small>`, `<ins>`) during Markdown ↔ HTML conversion instead of stripping them, allowing Grav Admin to detect the modified content and persist the styling on the page.
+
 ## 2.1.1
 - **New**: added GitHub configuration files (`.gitattributes`, `.github/codeql/codeql-config.yml`, and `.github/workflows/codeql.yml`) to instruct GitHub Linguist and CodeQL vulnerability scanners (both Default Setup and Advanced Setup) to ignore bundled third-party libraries (`assets/tinymce/`, `assets/vendor/`, and `vendor/`). This prevents false-positive vulnerability alerts and prevents third-party code from inflating repository language statistics.
 - **Fixed**: links entered with a bare domain or relative path without a leading slash (e.g. `dominio.ext` or `www.dominio.ext`) are now automatically corrected to start with `https://` (e.g. `https://dominio.ext`). A URL is preserved as-is if it already starts with a protocol (`http://`, `https://`, `mailto:`, `tel:`, `page://`, etc.), an anchor (`#`), or a leading/relative slash (`/`, `./`, `../`). Added `link_assume_external_targets: 'https'` to TinyMCE's configuration and implemented automatic URL normalization during Markdown ↔ HTML conversion.
