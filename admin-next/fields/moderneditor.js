@@ -771,6 +771,8 @@ function ensureBaseUrl(url) {
 class TinyMCEField extends HTMLElement {
   _field = null;
   _value = '';
+  _initialCleanValue = '';
+  _baselineValue = '';
   _editor = null;
   _editorId = null;
   _applying = false; // Avoid loop while applying an external value
@@ -792,6 +794,7 @@ class TinyMCEField extends HTMLElement {
   set value(v) {
     const newVal = v ?? '';
     this._value = newVal;
+    this._initialCleanValue = newVal;
     if (this._editor && this._ready) {
       const isMdEnabled = this._field.markdown_enabled !== false && this._field.markdown_enabled !== 'false';
       const htmlVal = isMdEnabled ? mdToHtml(newVal) : newVal;
@@ -799,7 +802,11 @@ class TinyMCEField extends HTMLElement {
       if (current !== htmlVal) {
         this._applying = true;
         this._editor.setContent(htmlVal);
+        this._editor.undoManager?.clear();
+        this._editor.setDirty(false);
         this._applying = false;
+        const renderedHtml = this._editor.getContent();
+        this._baselineValue = isMdEnabled ? htmlToMd(renderedHtml) : renderedHtml;
       }
     }
   }
@@ -1179,9 +1186,19 @@ class TinyMCEField extends HTMLElement {
       setup: (editor) => {
         editor.on('init', () => {
           this._editor = editor;
-          this._ready = true;
           const isMdEnabled = this._field.markdown_enabled !== false && this._field.markdown_enabled !== 'false';
-          editor.setContent(isMdEnabled ? mdToHtml(this._value || '') : (this._value || ''));
+          const initialVal = this._value || '';
+          this._initialCleanValue = initialVal;
+          const initialHtml = isMdEnabled ? mdToHtml(initialVal) : initialVal;
+          this._applying = true;
+          editor.setContent(initialHtml);
+          editor.undoManager?.clear();
+          editor.setDirty(false);
+          this._applying = false;
+
+          const renderedHtml = editor.getContent();
+          this._baselineValue = isMdEnabled ? htmlToMd(renderedHtml) : renderedHtml;
+          this._ready = true;
         });
         // Fix: pasted content (typically copied from WordPress or other
         // sites/editors) was inserted as-is, carrying foreign classes,
@@ -1198,16 +1215,42 @@ class TinyMCEField extends HTMLElement {
         editor.on('FullscreenStateChanged', (e) => {
           this._setAuxSinkFullscreen(e.state);
         });
-        // Fix (#24): small actions (e.g. changing text/heading color, background
-        // color, alignment, or font size via the toolbar) did not trigger
-        // TinyMCE's `change` event until blur, and mouse actions don't fire `keyup`.
-        // Listen to all editing and command execution events so Admin Next
-        // immediately detects unsaved changes and highlights the Save button.
+        // Fix: toolbar, formatting, and typing actions need to notify Admin Next
+        // so that the Save button is enabled immediately.
+        // Crucially, we only emit change/input events when actual unsaved changes exist
+        // (editor.isDirty() is true and the markdown value differs from baseline),
+        // preventing false-positive "unsaved changes" prompts when opening and leaving pages.
         const notifyChange = () => {
           if (this._applying || !this._ready) return;
+          if (!editor.isDirty()) return;
+
           const html = editor.getContent();
           const isMdEnabled = this._field.markdown_enabled !== false && this._field.markdown_enabled !== 'false';
           const finalVal = isMdEnabled ? htmlToMd(html) : html;
+
+          // Check if current value matches baseline or initial clean value
+          const isClean = (finalVal === this._baselineValue) || (this._initialCleanValue !== undefined && finalVal === this._initialCleanValue);
+          if (isClean) {
+            if (this._value !== this._initialCleanValue && this._initialCleanValue !== undefined) {
+              this._value = this._initialCleanValue;
+              const textarea = this.shadowRoot?.getElementById(this._editorId);
+              if (textarea) {
+                textarea.value = this._initialCleanValue;
+              }
+              this.dispatchEvent(new CustomEvent('change', {
+                detail: this._initialCleanValue,
+                bubbles: true,
+                composed: true,
+              }));
+              this.dispatchEvent(new CustomEvent('input', {
+                detail: this._initialCleanValue,
+                bubbles: true,
+                composed: true,
+              }));
+            }
+            return;
+          }
+
           if (finalVal !== this._value) {
             this._value = finalVal;
             const textarea = this.shadowRoot?.getElementById(this._editorId);
@@ -1228,6 +1271,27 @@ class TinyMCEField extends HTMLElement {
         };
 
         const handleEditorEvent = () => {
+          if (this._applying || !this._ready) return;
+          if (!editor.isDirty()) {
+            if (this._initialCleanValue !== undefined && this._value !== this._initialCleanValue) {
+              this._value = this._initialCleanValue;
+              const textarea = this.shadowRoot?.getElementById(this._editorId);
+              if (textarea) {
+                textarea.value = this._initialCleanValue;
+              }
+              this.dispatchEvent(new CustomEvent('change', {
+                detail: this._initialCleanValue,
+                bubbles: true,
+                composed: true,
+              }));
+              this.dispatchEvent(new CustomEvent('input', {
+                detail: this._initialCleanValue,
+                bubbles: true,
+                composed: true,
+              }));
+            }
+            return;
+          }
           notifyChange();
           if (typeof queueMicrotask === 'function') {
             queueMicrotask(notifyChange);
@@ -1363,6 +1427,7 @@ class TinyMCEField extends HTMLElement {
       ensureBaseUrl(editorUrl);
       this._initEditor(isDarkMode);
       this._value = mdVal;
+      this._initialCleanValue = mdVal;
     });
   }
 }
