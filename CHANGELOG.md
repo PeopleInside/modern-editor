@@ -1,5 +1,8 @@
 # Changelog
 
+## 2.1.3
+- **Fixed**: opening a page in the admin without making any edits no longer marks the form as dirty or triggers an "unsaved changes" confirmation alert when navigating away or closing the page. Content initialization and internal HTML normalization during TinyMCE's setup phase no longer emit spurious `change` or `input` events; events are now dispatched strictly when real user modifications are present (`editor.isDirty()` is true and content differs from baseline).
+
 ## 2.1.2
 - **Fixed** (#24): toolbar and formatting actions (such as changing text color, background color, font size, or alignment) did not notify Admin Next of unsaved changes, leaving the Save button disabled and preventing saving via Ctrl+S. TinyMCE's event listeners now monitor `ExecCommand`, `SetContent`, `NodeChange`, `input`, `Paste`, and `Cut` in addition to `change`/`keyup`, and Turndown now preserves inline styling and formatting tags (`<span>`, `<font>`, `<p>`, `<h1>`..`<h6>`, `<div>`, `<u>`, `<mark>`, `<sub>`, `<sup>`, `<small>`, `<ins>`) during Markdown ↔ HTML conversion instead of stripping them, allowing Grav Admin to detect the modified content and persist the styling on the page.
 

@@ -75,6 +75,7 @@ class ModernEditorPlugin extends Plugin
             'onGetPageBlueprints' => ['onGetPageBlueprints', 0],
             'onBlueprintCreated' => ['onBlueprintCreated', 0],
             'onAssetsInitialized' => ['onAssetsInitialized', 0],
+            'onPagesInitialized' => ['onPagesInitialized', 0],
             // Grav 2.0 / Admin2: real REST endpoints. This is the correct
             // replacement for the old ?action=get_status/get_config query
             // params, which never reach PHP under Admin2 (it's a decoupled
@@ -106,6 +107,63 @@ class ModernEditorPlugin extends Plugin
     /*
      * Handle custom backend action triggers when pages and user session are fully initialized.
      */
+    public function onPagesInitialized(Event $event): void
+    {
+        if (!$this->isAdminContext()) {
+            return;
+        }
+
+        $action = $_GET['action'] ?? null;
+        if (!$action || !is_string($action)) {
+            return;
+        }
+
+        $isAjax = isset($_GET['ajax']) || (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest');
+        $lang = $this->getUiLanguage();
+
+        if ($action === 'remove_tinymce_local') {
+            $result = $this->removeTinyMceLocalAction();
+            if ($isAjax) {
+                header('Content-Type: application/json; charset=utf-8');
+                echo json_encode($result);
+                exit;
+            }
+            if ($this->grav['admin'] ?? null) {
+                $this->grav['admin']->setMessage($result['message'], 'info');
+            }
+            $this->grav->redirect($this->getAdminBaseUrl() . '/plugins/modern-editor');
+        } elseif ($action === 'download_tinymce') {
+            $library = $_GET['library'] ?? 'tinymce';
+            $version = $_GET['version'] ?? null;
+            $result = $this->downloadLibraryAction((string)$library, $version ? (string)$version : null);
+            if ($isAjax) {
+                header('Content-Type: application/json; charset=utf-8');
+                echo json_encode($result);
+                exit;
+            }
+            if ($this->grav['admin'] ?? null) {
+                $this->grav['admin']->setMessage($result['message'], $result['status'] === 'success' ? 'info' : 'error');
+            }
+            $this->grav->redirect($this->getAdminBaseUrl() . '/plugins/modern-editor');
+        } elseif ($action === 'check_updates') {
+            $result = $this->checkUpdatesAction();
+            if ($isAjax) {
+                header('Content-Type: application/json; charset=utf-8');
+                echo json_encode($result);
+                exit;
+            }
+            if ($this->grav['admin'] ?? null) {
+                $this->grav['admin']->setMessage($result['message'], $result['status'] === 'success' ? 'info' : 'error');
+            }
+            $this->grav->redirect($this->getAdminBaseUrl() . '/plugins/modern-editor');
+        } elseif ($action === 'get_status') {
+            if ($isAjax) {
+                header('Content-Type: application/json; charset=utf-8');
+                echo json_encode($this->getStatusData());
+                exit;
+            }
+        }
+    }
     /*
      * Generates (if necessary) the override blueprints for each template
      * of the active theme, then registers the generated folder as an
@@ -656,8 +714,20 @@ YAML;
                 $markdownEnabled = false;
             }
 
+            // Only update Markdown libraries if they are already installed locally.
+            // Do NOT automatically re-download if the user deleted them!
             if ($markdownEnabled) {
-                $this->downloadMarkdownLibraries($cacheData['marked'] ?? null, $cacheData['turndown'] ?? null);
+                $markedInfo = $this->getMarkdownLibraryInstallInfo('marked', 'marked.umd.js');
+                $turndownInfo = $this->getMarkdownLibraryInstallInfo('turndown', 'turndown.js');
+                $latestMarked = $cacheData['marked'] ?? null;
+                $latestTurndown = $cacheData['turndown'] ?? null;
+
+                if ($markedInfo['installed'] && $latestMarked && $markedInfo['version'] !== $latestMarked) {
+                    $this->downloadMarkedAction($latestMarked);
+                }
+                if ($turndownInfo['installed'] && $latestTurndown && $turndownInfo['version'] !== $latestTurndown) {
+                    $this->downloadTurndownAction($latestTurndown);
+                }
             }
         }
     }
@@ -688,7 +758,9 @@ YAML;
 
         return [
             'status' => 'success',
-            'message' => $lang === 'it' ? "I file offline di TinyMCE sono stati rimossi con successo!" : "Offline TinyMCE files have been successfully removed!",
+            'message' => $lang === 'it'
+                ? "I file offline dell'editor e le librerie Markdown (marked / turndown) sono stati rimossi con successo!"
+                : "Offline editor files and Markdown libraries (marked / turndown) have been successfully removed!",
             'html' => $this->getLocalStatusHtml($langOverride)
         ];
     }
@@ -836,6 +908,9 @@ YAML;
         $turndownDownloadUrl = $adminBaseUrl . '?action=download_tinymce&library=turndown&version=' . self::TURNDOWN_VERSION;
         $markedUpdateUrl = $latestMarked ? ($adminBaseUrl . '?action=download_tinymce&library=marked&version=' . rawurlencode($latestMarked)) : $markedDownloadUrl;
         $turndownUpdateUrl = $latestTurndown ? ($adminBaseUrl . '?action=download_tinymce&library=turndown&version=' . rawurlencode($latestTurndown)) : $turndownDownloadUrl;
+
+        $vendorDir = $pluginDir . '/assets/vendor';
+        $hasOfflineAssets = $isInstalled || file_exists($vendorDir . '/marked.umd.js') || file_exists($vendorDir . '/turndown.js');
 
         // ✅ FIX: Escape tutte le variabili dinamiche
         $installedVersionEsc = htmlspecialchars($installedVersion ?? '', ENT_QUOTES, 'UTF-8');
@@ -1027,7 +1102,7 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
                     $html .= "<a class='button button-small' href='{$reinstallUrlEsc}' data-loading-text='Scaricamento in corso...' style='background: #9ca3af; color: #1f2937; border: 1px solid #d1d5db; padding: 6px 12px; border-radius: 4px; text-decoration: none; display: inline-block; font-size: 13px;'>Scarica v7.4.0 (Predefinita)</a>";
                 }
 
-                if ($isInstalled) {
+                if ($hasOfflineAssets) {
                     $html .= "<a class='button button-small' href='{$removeUrlEsc}' data-loading-text='Rimozione...' style='background: #dc2626; color: white; border: none; padding: 6px 12px; border-radius: 4px; text-decoration: none; display: inline-block; font-size: 13px;'>Rimuovi file offline</a>";
                 }
 
@@ -1070,7 +1145,7 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
                     $html .= "<a class='button button-small' href='{$reinstallUrlEsc}' data-loading-text='Downloading...' style='background: #9ca3af; color: #1f2937; border: 1px solid #d1d5db; padding: 6px 12px; border-radius: 4px; text-decoration: none; display: inline-block; font-size: 13px;'>Download v7.4.0 (Default)</a>";
                 }
 
-                if ($isInstalled) {
+                if ($hasOfflineAssets) {
                     $html .= "<a class='button button-small' href='{$removeUrlEsc}' data-loading-text='Removing...' style='background: #dc2626; color: white; border: none; padding: 6px 12px; border-radius: 4px; text-decoration: none; display: inline-block; font-size: 13px;'>Remove offline files</a>";
                 }
 
@@ -1110,7 +1185,9 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
                     }
 
                     $html .= "<a class='button button-small' href='{$reinstallUrlEsc}' data-loading-text='Reinstallazione...' style='background: #9ca3af; color: #1f2937; border: 1px solid #d1d5db; padding: 6px 12px; border-radius: 4px; text-decoration: none; display: inline-block; font-size: 13px;'>Reinstalla versione predefinita (v7.4.0)</a>";
-                    $html .= "<span style='background: #e2e8f0; color: #94a3b8; border: none; padding: 6px 12px; border-radius: 4px; display: inline-block; font-size: 13px; cursor: not-allowed; pointer-events: none;' title='Seleziona Cloud CDN nelle impostazioni in alto per poter rimuovere i file offline.'>Rimuovi file offline (Disattivato)</span>";
+                    if ($hasOfflineAssets) {
+                        $html .= "<a class='button button-small' href='{$removeUrlEsc}' data-loading-text='Rimozione...' style='background: #dc2626; color: white; border: none; padding: 6px 12px; border-radius: 4px; text-decoration: none; display: inline-block; font-size: 13px;'>Rimuovi file offline</a>";
+                    }
                     $html .= "</div>";
                     $html .= "</div>";
                 } else {
@@ -1141,7 +1218,9 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
                     }
 
                     $html .= "<a class='button button-small' href='{$reinstallUrlEsc}' data-loading-text='Reinstalling...' style='background: #9ca3af; color: #1f2937; border: 1px solid #d1d5db; padding: 6px 12px; border-radius: 4px; text-decoration: none; display: inline-block; font-size: 13px;'>Reinstall Default (v7.4.0)</a>";
-                    $html .= "<span style='background: #e2e8f0; color: #94a3b8; border: none; padding: 6px 12px; border-radius: 4px; display: inline-block; font-size: 13px; cursor: not-allowed; pointer-events: none;' title='Select Cloud CDN in the settings above to be able to remove offline files.'>Remove offline files (Disabled)</span>";
+                    if ($hasOfflineAssets) {
+                        $html .= "<a class='button button-small' href='{$removeUrlEsc}' data-loading-text='Removing...' style='background: #dc2626; color: white; border: none; padding: 6px 12px; border-radius: 4px; text-decoration: none; display: inline-block; font-size: 13px;'>Remove offline files</a>";
+                    }
                     $html .= "</div>";
                     $html .= "</div>";
                 }
@@ -1158,6 +1237,9 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
                     $html .= "<div style='display: flex; gap: 8px; flex-wrap: wrap;'>";
                     $html .= "<a class='button button-small' href='{$reinstallUrlEsc}' data-loading-text='Scaricamento in corso...' style='background: #dc2626; color: white; border: none; padding: 6px 12px; border-radius: 4px; text-decoration: none; display: inline-block; font-size: 13px; font-weight: bold;'>Scarica v7.4.0 (Predefinita)</a>";
                     $html .= "<a class='button button-small' href='{$checkUrlEsc}' data-loading-text='Verifica in corso...' style='background: #4b5563; color: white; border: none; padding: 6px 12px; border-radius: 4px; text-decoration: none; display: inline-block; font-size: 13px;'>Controlla versione disponibile</a>";
+                    if ($hasOfflineAssets) {
+                        $html .= "<a class='button button-small' href='{$removeUrlEsc}' data-loading-text='Rimozione...' style='background: #dc2626; color: white; border: none; padding: 6px 12px; border-radius: 4px; text-decoration: none; display: inline-block; font-size: 13px;'>Rimuovi file offline</a>";
+                    }
                     $html .= "</div>";
                     $html .= "</div>";
                 } else {
@@ -1172,6 +1254,9 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
                     $html .= "<div style='display: flex; gap: 8px; flex-wrap: wrap;'>";
                     $html .= "<a class='button button-small' href='{$reinstallUrlEsc}' data-loading-text='Downloading...' style='background: #dc2626; color: white; border: none; padding: 6px 12px; border-radius: 4px; text-decoration: none; display: inline-block; font-size: 13px; font-weight: bold;'>Download v7.4.0 (Default)</a>";
                     $html .= "<a class='button button-small' href='{$checkUrlEsc}' data-loading-text='Checking...' style='background: #4b5563; color: white; border: none; padding: 6px 12px; border-radius: 4px; text-decoration: none; display: inline-block; font-size: 13px;'>Check Available Version</a>";
+                    if ($hasOfflineAssets) {
+                        $html .= "<a class='button button-small' href='{$removeUrlEsc}' data-loading-text='Removing...' style='background: #dc2626; color: white; border: none; padding: 6px 12px; border-radius: 4px; text-decoration: none; display: inline-block; font-size: 13px;'>Remove offline files</a>";
+                    }
                     $html .= "</div>";
                     $html .= "</div>";
                 }
@@ -1314,49 +1399,60 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
             });
         });
 
-        // Listen for source changes on the admin form
-        const sourceInputs = document.querySelectorAll('input[name*=\"editor_source\"], select[name*=\"editor_source\"]');
-        sourceInputs.forEach(input => {
-            if (input.getAttribute('data-source-bound') === 'true') return;
-            input.setAttribute('data-source-bound', 'true');
+        // Listen for source changes anywhere on the admin form (delegated with capture)
+        if (!window.__modern_editor_source_change_bound__) {
+            window.__modern_editor_source_change_bound__ = true;
+            let isReloading = false;
 
-            input.addEventListener('change', function() {
-                let notice = card.querySelector('.modern-editor-save-notice');
-                if (!notice) {
-                    notice = document.createElement('div');
-                    notice.className = 'notice alert modern-editor-save-notice';
-                    notice.style.borderLeft = '4px solid #3b82f6';
-                    notice.style.backgroundColor = '#eff6ff';
-                    notice.style.color = '#1e3a8a';
-                    notice.style.padding = '14px';
-                    notice.style.marginBottom = '16px';
-                    notice.style.borderRadius = '4px';
-                    notice.style.fontSize = '13.5px';
-                    notice.style.lineHeight = '1.5';
-                    notice.style.fontWeight = '500';
+            document.addEventListener('change', function(e) {
+                if (isReloading) return;
+                const target = e.target;
+                if (!target) return;
+                const name = target.name || (target.getAttribute && target.getAttribute('name')) || (target.getAttribute && target.getAttribute('data-grav-field')) || '';
+                if (name.indexOf('editor_source') !== -1) {
+                    isReloading = true;
+                    const currentCard = document.getElementById('modern-editor-status-card');
+                    if (currentCard) {
+                        let notice = currentCard.querySelector('.modern-editor-save-notice');
+                        if (!notice) {
+                            notice = document.createElement('div');
+                            notice.className = 'notice alert modern-editor-save-notice';
+                            notice.style.borderLeft = '4px solid #3b82f6';
+                            notice.style.backgroundColor = '#eff6ff';
+                            notice.style.color = '#1e3a8a';
+                            notice.style.padding = '14px';
+                            notice.style.marginBottom = '16px';
+                            notice.style.borderRadius = '4px';
+                            notice.style.fontSize = '13.5px';
+                            notice.style.lineHeight = '1.5';
+                            notice.style.fontWeight = '500';
+                            currentCard.insertBefore(notice, currentCard.firstChild);
 
-                    card.insertBefore(notice, card.firstChild);
+                            const style = document.createElement('style');
+                            style.innerHTML = '@media (prefers-color-scheme: dark) { #modern-editor-status-card .modern-editor-save-notice { background-color: #1e3a8a !important; color: #eff6ff !important; } } html.dark #modern-editor-status-card .modern-editor-save-notice, html.dark-mode #modern-editor-status-card .modern-editor-save-notice, html.theme-dark #modern-editor-status-card .modern-editor-save-notice, body.dark #modern-editor-status-card .modern-editor-save-notice, body.dark-mode #modern-editor-status-card .modern-editor-save-notice, body.theme-dark #modern-editor-status-card .modern-editor-save-notice { background-color: #1e3a8a !important; color: #eff6ff !important; }';
+                            document.head.appendChild(style);
+                        }
 
-                    const style = document.createElement('style');
-                    style.innerHTML = '@media (prefers-color-scheme: dark) { #modern-editor-status-card .modern-editor-save-notice { background-color: #1e3a8a !important; color: #eff6ff !important; } } html.dark #modern-editor-status-card .modern-editor-save-notice, html.dark-mode #modern-editor-status-card .modern-editor-save-notice, html.theme-dark #modern-editor-status-card .modern-editor-save-notice, body.dark #modern-editor-status-card .modern-editor-save-notice, body.dark-mode #modern-editor-status-card .modern-editor-save-notice, body.theme-dark #modern-editor-status-card .modern-editor-save-notice { background-color: #1e3a8a !important; color: #eff6ff !important; }';
-                    document.head.appendChild(style);
-                }
-
-                const isIt = document.documentElement.lang.split(/[-_]/)[0].toLowerCase() === 'it' || window.navigator.language.startsWith('it') || navigator.language.startsWith('it') || " . $langJs . ";
-                notice.innerHTML = isIt
-                    ? '🔄 <strong>Salvataggio in corso...</strong> La pagina si ricaricherà automaticamente per aggiornare lo stato e i banner.'
-                    : '🔄 <strong>Saving settings...</strong> The page will reload automatically to update status and banners.';
-
-                setTimeout(() => {
-                    const saveBtn = document.querySelector('#and-save, .and-save-button, button[type=\"submit\"], .button.save, [data-key=\"s\"]');
-                    if (saveBtn) {
-                        saveBtn.click();
-                    } else {
-                        window.location.reload();
+                        const isIt = document.documentElement.lang.split(/[-_]/)[0].toLowerCase() === 'it' || window.navigator.language.startsWith('it') || navigator.language.startsWith('it') || " . $langJs . ";
+                        notice.innerHTML = isIt
+                            ? '🔄 <strong>Salvataggio in corso...</strong> La pagina si ricaricherà automaticamente per aggiornare lo stato e i banner.'
+                            : '🔄 <strong>Saving settings...</strong> The page will reload automatically to update status and banners.';
                     }
-                }, 800);
-            });
-        });
+
+                    setTimeout(function() {
+                        const saveBtn = document.querySelector('#titlebar-save, #and-save, .and-save-button, button[name=\"task\"][value=\"save\"], button[type=\"submit\"], .button.save, [data-key=\"s\"]');
+                        if (saveBtn) {
+                            saveBtn.click();
+                            setTimeout(function() {
+                                window.location.reload();
+                            }, 1200);
+                        } else {
+                            window.location.reload();
+                        }
+                    }, 400);
+                }
+            }, true);
+        }
     }
 
     // Inject keyframes style once if not already present
@@ -1785,16 +1881,23 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
             return;
         }
 
-        $files = array_diff(scandir($dir), ['.', '..']);
+        $scanned = @scandir($dir);
+        if ($scanned === false) {
+            return;
+        }
+
+        $files = array_diff($scanned, ['.', '..']);
         foreach ($files as $file) {
             $path = $dir . '/' . $file;
             if (is_dir($path)) {
                 $this->recursiveRmdir($path);
             } else {
+                @chmod($path, 0777);
                 @unlink($path);
             }
         }
 
+        @chmod($dir, 0777);
         @rmdir($dir);
     }
 
@@ -1830,15 +1933,6 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
         }
 
         $this->performPeriodicUpdateCheck();
-
-        // Ensure local assets exist BEFORE computing the URLs we're about
-        // to inject into this exact page response. This must run first,
-        // in this method — not in onPagesInitialized, which fires later
-        // in Grav's lifecycle (see the note on the old onPagesInitialized
-        // for why that ordering caused CDN URLs to get "stuck" for an
-        // entire Admin Next SPA session after the very first activation
-        // of local mode).
-        $this->ensureLocalAssetsInstalled();
 
         $editorUrl = $this->getEditorScriptUrl();
         $this->grav['assets']->addInlineJs("window.__MODERN_EDITOR_URL__ = " . json_encode($editorUrl) . ";");
@@ -1888,43 +1982,6 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
         if ($markdownEnabled) {
             $mdUrls = $this->getMarkdownLibraryUrls();
             $this->grav['assets']->addInlineJs("window.__MODERN_EDITOR_MD_URLS__ = " . json_encode($mdUrls) . ";");
-        }
-    }
-
-    /*
-     * Downloads local ("self-hosted") copies of TinyMCE and/or the
-     * markdown helper libraries (marked, turndown) if editor_source is
-     * "local" and any of them are missing. Only ever installs — never
-     * re-downloads or touches a file that already exists just because a
-     * newer release might be available (that's a deliberate, explicit
-     * action via the status card / REST API, not something that should
-     * happen silently on a page load — see the earlier auto-heal/
-     * downgrade bug this plugin used to have).
-     */
-    private function ensureLocalAssetsInstalled(): void
-    {
-        $editorSource = $this->config->get('plugins.modern-editor.editor_source', 'local');
-        if ($editorSource !== 'local') {
-            return;
-        }
-
-        $pluginDir = $this->grav['locator']->findResource('plugin://' . $this->name, true, true);
-
-        $localJs = $pluginDir . '/assets/tinymce/tinymce.min.js';
-        if (!file_exists($localJs)) {
-            $this->downloadAndExtractTinyMCE('7.4.0');
-        }
-
-        $markdownEnabled = (bool) $this->config->get('plugins.modern-editor.markdown_enabled', true);
-        if ($this->config->get('system.pages.markdown.enabled') === false) {
-            $markdownEnabled = false;
-        }
-
-        if ($markdownEnabled) {
-            $vendorDir = $pluginDir . '/assets/vendor';
-            if (!file_exists($vendorDir . '/marked.umd.js') || !file_exists($vendorDir . '/turndown.js')) {
-                $this->downloadMarkdownLibraries();
-            }
         }
     }
 

@@ -91,9 +91,10 @@ function apiRequest(path, classicAction, options) {
   if (window.__GRAV_API_PREFIX !== undefined && window.__GRAV_API_PREFIX !== null) {
     const urlObj = new URL((window.__GRAV_API_SERVER_URL || '') + window.__GRAV_API_PREFIX + path, window.location.href);
     if (lang) urlObj.searchParams.set('lang', lang);
+    urlObj.searchParams.set('_t', Date.now().toString());
     const url = urlObj.toString();
     const headers = window.__GRAV_API_TOKEN ? { 'X-API-Token': window.__GRAV_API_TOKEN } : {};
-    const init = { method, headers };
+    const init = { method, headers, cache: 'no-store' };
     if (body) {
       init.headers = { ...headers, 'Content-Type': 'application/json' };
       init.body = JSON.stringify(body);
@@ -103,13 +104,14 @@ function apiRequest(path, classicAction, options) {
   const url = new URL(window.location.href);
   url.searchParams.set('action', classicAction);
   if (lang) url.searchParams.set('lang', lang);
+  url.searchParams.set('_t', Date.now().toString());
   if (body && body.version) {
     url.searchParams.set('version', body.version);
   }
   if (body && body.library) {
     url.searchParams.set('library', body.library);
   }
-  return fetch(url.toString()).then(r => ({ res: r, url: url.toString() }));
+  return fetch(url.toString(), { cache: 'no-store' }).then(r => ({ res: r, url: url.toString() }));
 }
 
 class ModernEditorStatusField extends HTMLElement {
@@ -151,15 +153,15 @@ class ModernEditorStatusField extends HTMLElement {
     this._saveListenersBound = true;
 
     const handleSaveTrigger = () => {
-      // Wait for the AJAX save operation to complete (usually < 1s), then update status
+      // Reload page after save to reflect the new state and banners cleanly
       setTimeout(() => {
-        this._bootstrap(true);
+        window.location.reload();
       }, 1200);
     };
 
     // Watch clicks on elements that look like save buttons in standard or next admin
     const handleDocumentClick = (e) => {
-      const target = e.target.closest('#and-save, .and-save-button, button[type="submit"], .button.save, [data-key="s"]');
+      const target = e.target.closest('#titlebar-save, #and-save, .and-save-button, button[name="task"][value="save"], button[type="submit"], .button.save, [data-key="s"]');
       if (target) {
         handleSaveTrigger();
       }
@@ -322,46 +324,59 @@ class ModernEditorStatusField extends HTMLElement {
       });
     });
 
-    // Listen for source changes on the admin form
-    const sourceInputs = document.querySelectorAll('input[name*="editor_source"], select[name*="editor_source"]');
-    sourceInputs.forEach(input => {
-      if (input.getAttribute('data-source-bound') === 'true') return;
-      input.setAttribute('data-source-bound', 'true');
-      input.addEventListener('change', () => {
-        let notice = card.querySelector('.modern-editor-save-notice');
-        if (!notice) {
-          notice = document.createElement('div');
-          notice.className = 'notice alert modern-editor-save-notice';
-          notice.style.borderLeft = '4px solid #3b82f6';
-          notice.style.backgroundColor = '#eff6ff';
-          notice.style.color = '#1e3a8a';
-          notice.style.padding = '14px';
-          notice.style.marginBottom = '16px';
-          notice.style.borderRadius = '4px';
-          notice.style.fontSize = '13.5px';
-          notice.style.lineHeight = '1.5';
-          notice.style.fontWeight = '500';
-          card.insertBefore(notice, card.firstChild);
-          
-          const style = document.createElement('style');
-          style.innerHTML = '@media (prefers-color-scheme: dark) { #modern-editor-status-card .modern-editor-save-notice { background-color: #1e3a8a !important; color: #eff6ff !important; } } html.dark #modern-editor-status-card .modern-editor-save-notice, html.dark-mode #modern-editor-status-card .modern-editor-save-notice, html.theme-dark #modern-editor-status-card .modern-editor-save-notice, body.dark #modern-editor-status-card .modern-editor-save-notice, body.dark-mode #modern-editor-status-card .modern-editor-save-notice, body.theme-dark #modern-editor-status-card .modern-editor-save-notice { background-color: #1e3a8a !important; color: #eff6ff !important; }';
-          document.head.appendChild(style);
-        }
-        const isIt = resolveUiLang() === 'it';
-        notice.innerHTML = isIt 
-          ? '🔄 <strong>Salvataggio in corso...</strong> La pagina si ricaricherà automaticamente per aggiornare lo stato e i banner.'
-          : '🔄 <strong>Saving settings...</strong> The page will reload automatically to update status and banners.';
-        
-        setTimeout(() => {
-          const saveBtn = document.querySelector('#and-save, .and-save-button, button[type="submit"], .button.save, [data-key="s"]');
-          if (saveBtn) {
-            saveBtn.click();
-          } else {
-            window.location.reload();
+    // Listen for source changes anywhere on the admin form (delegated with capture)
+    if (!window.__modern_editor_source_change_bound__) {
+      window.__modern_editor_source_change_bound__ = true;
+      let isReloading = false;
+
+      document.addEventListener('change', (e) => {
+        if (isReloading) return;
+        const target = e.target;
+        if (!target) return;
+        const name = target.name || (target.getAttribute && target.getAttribute('name')) || (target.getAttribute && target.getAttribute('data-grav-field')) || '';
+        if (name.includes('editor_source')) {
+          isReloading = true;
+          const currentCard = document.getElementById('modern-editor-status-card');
+          if (currentCard) {
+            let notice = currentCard.querySelector('.modern-editor-save-notice');
+            if (!notice) {
+              notice = document.createElement('div');
+              notice.className = 'notice alert modern-editor-save-notice';
+              notice.style.borderLeft = '4px solid #3b82f6';
+              notice.style.backgroundColor = '#eff6ff';
+              notice.style.color = '#1e3a8a';
+              notice.style.padding = '14px';
+              notice.style.marginBottom = '16px';
+              notice.style.borderRadius = '4px';
+              notice.style.fontSize = '13.5px';
+              notice.style.lineHeight = '1.5';
+              notice.style.fontWeight = '500';
+              currentCard.insertBefore(notice, currentCard.firstChild);
+              
+              const style = document.createElement('style');
+              style.innerHTML = '@media (prefers-color-scheme: dark) { #modern-editor-status-card .modern-editor-save-notice { background-color: #1e3a8a !important; color: #eff6ff !important; } } html.dark #modern-editor-status-card .modern-editor-save-notice, html.dark-mode #modern-editor-status-card .modern-editor-save-notice, html.theme-dark #modern-editor-status-card .modern-editor-save-notice, body.dark #modern-editor-status-card .modern-editor-save-notice, body.dark-mode #modern-editor-status-card .modern-editor-save-notice, body.theme-dark #modern-editor-status-card .modern-editor-save-notice { background-color: #1e3a8a !important; color: #eff6ff !important; }';
+              document.head.appendChild(style);
+            }
+            const isIt = resolveUiLang() === 'it';
+            notice.innerHTML = isIt 
+              ? '🔄 <strong>Salvataggio in corso...</strong> La pagina si ricaricherà automaticamente per aggiornare lo stato e i banner.'
+              : '🔄 <strong>Saving settings...</strong> The page will reload automatically to update status and banners.';
           }
-        }, 800);
-      });
-    });
+
+          setTimeout(() => {
+            const saveBtn = document.querySelector('#titlebar-save, #and-save, .and-save-button, button[name="task"][value="save"], button[type="submit"], .button.save, [data-key="s"]');
+            if (saveBtn) {
+              saveBtn.click();
+              setTimeout(() => {
+                window.location.reload();
+              }, 1200);
+            } else {
+              window.location.reload();
+            }
+          }, 400);
+        }
+      }, true);
+    }
   }
 }
 
