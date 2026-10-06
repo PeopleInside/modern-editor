@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.1.4
+- **Fixed (Issue #26)**: fixed cursor/caret jumping to the beginning of the editor (position 0,0) on every keystroke when typing or deleting text in Grav Admin2 (v2.1.27+). Resolved reactive feedback loop from Admin2 form listeners by ignoring incoming values matching current or last-emitted states, and preventing TinyMCE `setContent()` DOM resets while the editor has active focus.
+- **New & Improved**: automatic HTML detection with Markdown auto-disable and user warning banner. When opening a page that contains rich HTML tags, inline styles (`style=`), layout blocks (`<p style=...>`, `<div>`, `<span>`, `<table>`, `<img>`), Markdown conversion is automatically disabled for that page session. This prevents Turndown/Marked roundtrip conversions from corrupting HTML formatting, altering text alignment, or inserting unwanted Markdown asterisks/syntax around HTML elements. An alert banner informs the user with options to dismiss or force Markdown mode if desired.
+- **Fixed**: Turndown image rule (`gravImages`) now preserves all inline CSS styles on `<img>` elements (not just `text-align`) as native HTML tags, preventing loss of sizing (`width`, `height` in styles) and layout styling.
+
 ## 2.1.3
 - **Fixed**: opening a page in the admin without making any edits no longer marks the form as dirty or triggers an "unsaved changes" confirmation alert when navigating away or closing the page. Content initialization and internal HTML normalization during TinyMCE's setup phase no longer emit spurious `change` or `input` events; events are now dispatched strictly when real user modifications are present (`editor.isDirty()` is true and content differs from baseline).
 
