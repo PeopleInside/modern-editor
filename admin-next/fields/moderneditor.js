@@ -193,6 +193,44 @@ function mdToHtml(md) {
   }
 }
 
+/**
+ * Detects whether content contains HTML tags, inline styles, or block layout
+ * elements. When present, Markdown conversion (Turndown) can corrupt layout,
+ * mangling inline styles, attributes, or injecting unwanted asterisks/syntax.
+ */
+function isHtmlContent(str) {
+  if (!str || typeof str !== 'string') return false;
+  let text = str.trim();
+  if (!text) return false;
+
+  // Strip fenced code blocks (```...```) and inline code (`...`) so code examples don't false-positive
+  text = text.replace(/```[\s\S]*?```/g, '').replace(/`[^`\n]*`/g, '').trim();
+  if (!text) return false;
+
+  // 1. Tags with attributes (style, class, id, width, height, align, etc.)
+  if (/<[a-z][a-z0-9]*(?:\s+[^>]*?)?\s+(style|class|id|width|height|align|data-[a-z0-9-]+)\s*=/i.test(text)) {
+    return true;
+  }
+
+  // 2. Common structural HTML block tags (<p>, <div>, <span>, <table>, <section>, etc.)
+  if (/<\/?(div|p|span|table|thead|tbody|tr|td|th|section|article|header|footer|main|nav|aside|iframe|figure|figcaption)(?:\s+[^>]*|\s*\/?)>/i.test(text)) {
+    return true;
+  }
+
+  // 3. Document level or comment tags
+  if (/^<!DOCTYPE|<html|<head|<body/i.test(text)) {
+    return true;
+  }
+
+  // 4. Multiple recognized HTML tags in the text (e.g. 4+ tags)
+  const matches = text.match(/<\/?(h[1-6]|ul|ol|li|strong|b|em|i|u|a|img|hr|br|blockquote|pre|code)(?:\s+[^>]*|\s*\/?)>/gi);
+  if (matches && matches.length >= 4) {
+    return true;
+  }
+
+  return false;
+}
+
 function htmlToMd(html) {
   if (!html) return '';
   html = normalizeLinksInHtml(html);
@@ -427,7 +465,7 @@ function htmlToMd(html) {
       const id = node.getAttribute('id');
       const style = node.getAttribute('style');
 
-      const hasExtraAttrs = width || height || className || id || (style && style.includes('text-align'));
+      const hasExtraAttrs = width || height || className || id || style;
       if (!hasExtraAttrs) {
         return '![' + alt + '](' + src + (title ? ' "' + title + '"' : '') + ')';
       }
@@ -773,11 +811,13 @@ class TinyMCEField extends HTMLElement {
   _value = '';
   _initialCleanValue = '';
   _baselineValue = '';
+  _lastEmittedValue = null;
   _editor = null;
   _editorId = null;
   _applying = false; // Avoid loop while applying an external value
   _ready = false;
   _bootstrapped = false;
+  _markdownAutoDisabled = false;
 
   set field(f) {
     this._field = f || {};
@@ -791,15 +831,49 @@ class TinyMCEField extends HTMLElement {
     return this._field;
   }
 
+  _isMarkdownEnabled() {
+    if (this._markdownAutoDisabled) return false;
+    return this._field?.markdown_enabled !== false && this._field?.markdown_enabled !== 'false';
+  }
+
   set value(v) {
     const newVal = v ?? '';
+
+    // 1. Reactive loop guard: if incoming value matches current value or the value
+    // this editor instance just emitted to Admin2, ignore it. This breaks
+    // the reactive feedback cycle from Admin2 form listeners.
+    if (newVal === this._value || newVal === this._lastEmittedValue) {
+      return;
+    }
+
+    // 2. Fix for Issue #26: If the editor is currently focused and the user
+    // is actively typing, NEVER overwrite TinyMCE content with setContent().
+    // Calling setContent() clears the DOM selection, jumps the caret to (0,0),
+    // and clears the undo stack.
+    if (this._editor && this._ready && this._editor.hasFocus && this._editor.hasFocus()) {
+      this._value = newVal;
+      return;
+    }
+
     this._value = newVal;
-    this._initialCleanValue = newVal;
+
+    if (!this._ready) {
+      this._initialCleanValue = newVal;
+      return;
+    }
+
+    // Auto-detect HTML if global markdown support is enabled:
+    const globalMdEnabled = this._field?.markdown_enabled !== false && this._field?.markdown_enabled !== 'false';
+    if (globalMdEnabled && !this._markdownAutoDisabled && isHtmlContent(newVal)) {
+      this._markdownAutoDisabled = true;
+      this._showHtmlDetectedBanner();
+    }
+
     if (this._editor && this._ready) {
-      const isMdEnabled = this._field.markdown_enabled !== false && this._field.markdown_enabled !== 'false';
+      const isMdEnabled = this._isMarkdownEnabled();
       const htmlVal = isMdEnabled ? mdToHtml(newVal) : newVal;
       const current = this._editor.getContent();
-      if (current !== htmlVal) {
+      if (current !== htmlVal && current.trim() !== htmlVal.trim()) {
         this._applying = true;
         this._editor.setContent(htmlVal);
         this._editor.undoManager?.clear();
@@ -807,6 +881,7 @@ class TinyMCEField extends HTMLElement {
         this._applying = false;
         const renderedHtml = this._editor.getContent();
         this._baselineValue = isMdEnabled ? htmlToMd(renderedHtml) : renderedHtml;
+        this._initialCleanValue = newVal;
       }
     }
   }
@@ -945,6 +1020,83 @@ class TinyMCEField extends HTMLElement {
       <style>.error { padding: 12px; font-size: 13px; color: #b91c1c; background: #fef2f2; border: 1px solid #fecaca; border-radius: 6px; }</style>
       <div class="error">${errorLabel}${this._esc(err.message)}</div>
     `;
+  }
+
+  _showHtmlDetectedBanner() {
+    if (!this.shadowRoot) return;
+    const wrap = this.shadowRoot.querySelector('.wrap');
+    if (!wrap) return;
+    if (wrap.querySelector('.html-detected-banner')) return;
+
+    const isDarkMode = this._detectDarkMode();
+    const isIt = detectItalianLocale(this._dCfg);
+
+    const banner = document.createElement('div');
+    banner.className = 'html-detected-banner';
+    banner.style.cssText = `
+      padding: 10px 14px;
+      background: ${isDarkMode ? '#292524' : '#fffbeb'};
+      border-bottom: 1px solid ${isDarkMode ? '#44403c' : '#fed7aa'};
+      color: ${isDarkMode ? '#fef08a' : '#92400e'};
+      font-size: 13px;
+      line-height: 1.4;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+    `;
+
+    const title = isIt ? 'Codice HTML rilevato nel contenuto' : 'HTML content detected';
+    const message = isIt
+      ? 'Il supporto Markdown è stato disattivato automaticamente per questa pagina per preservare la formattazione, gli stili CSS e i tag HTML.'
+      : 'Markdown support has been automatically disabled for this page to preserve formatting, inline CSS styles, and HTML tags.';
+    const dismissLabel = isIt ? 'Nascondi avviso' : 'Dismiss';
+    const forceMdLabel = isIt ? 'Forza modalità Markdown' : 'Force Markdown mode';
+
+    banner.innerHTML = `
+      <div style="display: flex; align-items: flex-start; gap: 8px;">
+        <span style="font-size: 16px; line-height: 1; flex-shrink: 0;" aria-hidden="true">⚠️</span>
+        <div>
+          <strong style="color: ${isDarkMode ? '#ffffff' : '#78350f'};">${title}:</strong>
+          <span style="margin-left: 4px;">${message}</span>
+        </div>
+      </div>
+      <div style="display: flex; align-items: center; gap: 12px; flex-shrink: 0;">
+        <a href="#" class="force-md-btn" style="color: ${isDarkMode ? '#fbbf24' : '#b45309'}; font-size: 12px; text-decoration: underline;" title="${isIt ? 'Forza la conversione in Markdown (potrebbe alterare gli stili HTML)' : 'Force conversion to Markdown (may alter HTML styles)'}">${forceMdLabel}</a>
+        <button type="button" class="dismiss-btn" style="background: none; border: 1px solid ${isDarkMode ? '#78716c' : '#d97706'}; color: ${isDarkMode ? '#f5f5f4' : '#92400e'}; border-radius: 4px; padding: 2px 8px; font-size: 12px; cursor: pointer;">${dismissLabel}</button>
+      </div>
+    `;
+
+    const dismissBtn = banner.querySelector('.dismiss-btn');
+    if (dismissBtn) {
+      dismissBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        banner.remove();
+      });
+    }
+
+    const forceMdBtn = banner.querySelector('.force-md-btn');
+    if (forceMdBtn) {
+      forceMdBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        this._markdownAutoDisabled = false;
+        if (this._editor) {
+          const renderedHtml = this._editor.getContent();
+          const mdVal = htmlToMd(renderedHtml);
+          this._baselineValue = mdVal;
+          this._value = mdVal;
+          this._lastEmittedValue = mdVal;
+          const textarea = this.shadowRoot?.getElementById(this._editorId);
+          if (textarea) textarea.value = mdVal;
+          this._editor.setDirty(true);
+          this.dispatchEvent(new CustomEvent('change', { detail: mdVal, bubbles: true, composed: true }));
+          this.dispatchEvent(new CustomEvent('input', { detail: mdVal, bubbles: true, composed: true }));
+        }
+        banner.remove();
+      });
+    }
+
+    wrap.insertBefore(banner, wrap.firstChild);
   }
 
   _esc(s) {
@@ -1186,9 +1338,17 @@ class TinyMCEField extends HTMLElement {
       setup: (editor) => {
         editor.on('init', () => {
           this._editor = editor;
-          const isMdEnabled = this._field.markdown_enabled !== false && this._field.markdown_enabled !== 'false';
           const initialVal = this._value || '';
           this._initialCleanValue = initialVal;
+
+          // Auto-detect HTML if markdown is globally enabled:
+          const globalMdEnabled = this._field?.markdown_enabled !== false && this._field?.markdown_enabled !== 'false';
+          if (globalMdEnabled && isHtmlContent(initialVal)) {
+            this._markdownAutoDisabled = true;
+            this._showHtmlDetectedBanner();
+          }
+
+          const isMdEnabled = this._isMarkdownEnabled();
           const initialHtml = isMdEnabled ? mdToHtml(initialVal) : initialVal;
           this._applying = true;
           editor.setContent(initialHtml);
@@ -1225,7 +1385,7 @@ class TinyMCEField extends HTMLElement {
           if (!editor.isDirty()) return;
 
           const html = editor.getContent();
-          const isMdEnabled = this._field.markdown_enabled !== false && this._field.markdown_enabled !== 'false';
+          const isMdEnabled = this._isMarkdownEnabled();
           const finalVal = isMdEnabled ? htmlToMd(html) : html;
 
           // Check if current value matches baseline or initial clean value
@@ -1233,6 +1393,7 @@ class TinyMCEField extends HTMLElement {
           if (isClean) {
             if (this._value !== this._initialCleanValue && this._initialCleanValue !== undefined) {
               this._value = this._initialCleanValue;
+              this._lastEmittedValue = this._initialCleanValue;
               const textarea = this.shadowRoot?.getElementById(this._editorId);
               if (textarea) {
                 textarea.value = this._initialCleanValue;
@@ -1253,6 +1414,7 @@ class TinyMCEField extends HTMLElement {
 
           if (finalVal !== this._value) {
             this._value = finalVal;
+            this._lastEmittedValue = finalVal;
             const textarea = this.shadowRoot?.getElementById(this._editorId);
             if (textarea) {
               textarea.value = finalVal;
@@ -1275,6 +1437,7 @@ class TinyMCEField extends HTMLElement {
           if (!editor.isDirty()) {
             if (this._initialCleanValue !== undefined && this._value !== this._initialCleanValue) {
               this._value = this._initialCleanValue;
+              this._lastEmittedValue = this._initialCleanValue;
               const textarea = this.shadowRoot?.getElementById(this._editorId);
               if (textarea) {
                 textarea.value = this._initialCleanValue;
@@ -1416,7 +1579,7 @@ class TinyMCEField extends HTMLElement {
     const current = JSON.stringify({ ...this._cfg(), isDarkMode, editor_url: editorUrl });
     if (this._lastCfg === current) return;
     this._lastCfg = current;
-    const isMdEnabled = this._field.markdown_enabled !== false && this._field.markdown_enabled !== 'false';
+    const isMdEnabled = this._isMarkdownEnabled();
     const mdVal = isMdEnabled ? htmlToMd(this._editor.getContent()) : this._editor.getContent();
     this._editor.remove();
     this._cleanupAuxSink();
@@ -1427,6 +1590,7 @@ class TinyMCEField extends HTMLElement {
       ensureBaseUrl(editorUrl);
       this._initEditor(isDarkMode);
       this._value = mdVal;
+      this._lastEmittedValue = mdVal;
       this._initialCleanValue = mdVal;
     });
   }
