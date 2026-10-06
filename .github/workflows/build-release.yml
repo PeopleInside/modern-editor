@@ -1,0 +1,46 @@
+name: Build Plugin Release
+
+on:
+  release:
+    types: [published]
+  push:
+    tags:
+      - '*'  # Si attiva con qualsiasi push di un tag
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set version variable
+        id: vars
+        run: echo "VERSION=${{ github.event.release.tag_name || github.ref_name }}" >> $GITHUB_ENV
+
+      - name: Create versioned plugin zip
+        run: |
+          # Crea un archivio zip pulito con il numero di versione nel nome.
+          # git archive esclude automaticamente la cartella .git e rispetta 
+          # eventuali regole di export-ignore nel file .gitattributes.
+          # Il prefisso "modern-editor/" assicura che i file vengano estratti 
+          # in una cartella dedicata, evitando di spargere file nella root di destinazione.
+          git archive --format=zip --output="modern-editor-${{ env.VERSION }}.zip" --prefix=modern-editor/ HEAD
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: modern-editor-${{ env.VERSION }}-artifact
+          path: modern-editor-${{ env.VERSION }}.zip
+          retention-days: 30
+
+      - name: Attach ZIP to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: modern-editor-${{ env.VERSION }}.zip
+          tag_name: ${{ env.VERSION }}
+          generate_release_notes: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
