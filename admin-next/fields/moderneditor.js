@@ -90,7 +90,11 @@ function loadMarkdownLibraries(dCfg) {
 
 function normalizeLinkUrl(url) {
   if (!url || typeof url !== 'string') return url;
-  const trimmed = url.trim();
+  let trimmed = url.trim();
+  // Strip accidental or legacy https://# or http://# anchor prefixes
+  if (/^https?:\/\/#/i.test(trimmed)) {
+    trimmed = trimmed.replace(/^https?:\/\//i, '');
+  }
   if (!trimmed || /^(https?:\/\/|\/|\.\/|\.\.\/|#|[a-z0-9+-.]+:\/\/|[a-z0-9+-]+:)/i.test(trimmed)) {
     return trimmed;
   }
@@ -191,44 +195,6 @@ function mdToHtml(md) {
     console.error('Error post-processing markdown alerts', e);
     return html;
   }
-}
-
-/**
- * Detects whether content contains HTML tags, inline styles, or block layout
- * elements. When present, Markdown conversion (Turndown) can corrupt layout,
- * mangling inline styles, attributes, or injecting unwanted asterisks/syntax.
- */
-function isHtmlContent(str) {
-  if (!str || typeof str !== 'string') return false;
-  let text = str.trim();
-  if (!text) return false;
-
-  // Strip fenced code blocks (```...```) and inline code (`...`) so code examples don't false-positive
-  text = text.replace(/```[\s\S]*?```/g, '').replace(/`[^`\n]*`/g, '').trim();
-  if (!text) return false;
-
-  // 1. Tags with attributes (style, class, id, width, height, align, etc.)
-  if (/<[a-z][a-z0-9]*(?:\s+[^>]*?)?\s+(style|class|id|width|height|align|data-[a-z0-9-]+)\s*=/i.test(text)) {
-    return true;
-  }
-
-  // 2. Common structural HTML block tags (<p>, <div>, <span>, <table>, <section>, etc.)
-  if (/<\/?(div|p|span|table|thead|tbody|tr|td|th|section|article|header|footer|main|nav|aside|iframe|figure|figcaption)(?:\s+[^>]*|\s*\/?)>/i.test(text)) {
-    return true;
-  }
-
-  // 3. Document level or comment tags
-  if (/^<!DOCTYPE|<html|<head|<body/i.test(text)) {
-    return true;
-  }
-
-  // 4. Multiple recognized HTML tags in the text (e.g. 4+ tags)
-  const matches = text.match(/<\/?(h[1-6]|ul|ol|li|strong|b|em|i|u|a|img|hr|br|blockquote|pre|code)(?:\s+[^>]*|\s*\/?)>/gi);
-  if (matches && matches.length >= 4) {
-    return true;
-  }
-
-  return false;
 }
 
 function htmlToMd(html) {
@@ -451,6 +417,16 @@ function htmlToMd(html) {
     }
   });
 
+  turndownService.addRule('gravAnchors', {
+    filter: function (node) {
+      return node.nodeName === 'A' && !node.getAttribute('href') && (node.getAttribute('id') || node.getAttribute('name'));
+    },
+    replacement: function (content, node) {
+      const id = node.getAttribute('id') || node.getAttribute('name');
+      return '<a id="' + id + '">' + content + '</a>';
+    }
+  });
+
   turndownService.addRule('gravImages', {
     filter: function (node) {
       return node.nodeName === 'IMG' && node.getAttribute('src');
@@ -535,9 +511,9 @@ function sanitizePastedHtml(html) {
   });
 
   // 2. Strip presentational/foreign attributes from every remaining
-  //    element, keeping only a small allow-list that's actually useful
-  //    here (plus a filtered `style` — see below).
-  const ATTR_ALLOWLIST = new Set(['href', 'src', 'alt', 'title', 'width', 'height', 'target', 'rel']);
+  //    element, keeping only an allow-list of attributes that are actually
+  //    useful here (including link/image/anchor targets, IDs, classes, plus a filtered `style`).
+  const ATTR_ALLOWLIST = new Set(['href', 'src', 'alt', 'title', 'width', 'height', 'target', 'rel', 'id', 'name', 'class']);
   root.querySelectorAll('*').forEach((el) => {
     Array.from(el.attributes).forEach((attr) => {
       const name = attr.name.toLowerCase();
@@ -547,14 +523,25 @@ function sanitizePastedHtml(html) {
       }
     });
 
-    // Keep only text-align out of any inline style (drops fonts, colors,
-    // WP/Word-specific junk, etc.); it's the one styling hint worth
-    // preserving (e.g. centered image captions/paragraphs).
+    // Keep meaningful layout styling in inline style: text-align,
+    // image/element float, margins (for spacing around floated images),
+    // display, and clear. Drops foreign fonts, colors, and junk.
     const style = el.getAttribute('style');
     if (style) {
-      const match = style.match(/text-align\s*:\s*(left|right|center|justify)/i);
-      if (match) {
-        el.setAttribute('style', `text-align: ${match[1].toLowerCase()};`);
+      const parts = [];
+      const alignMatch = style.match(/text-align\s*:\s*(left|right|center|justify)/i);
+      if (alignMatch) parts.push(`text-align: ${alignMatch[1].toLowerCase()}`);
+      const floatMatch = style.match(/float\s*:\s*(left|right|none)/i);
+      if (floatMatch) parts.push(`float: ${floatMatch[1].toLowerCase()}`);
+      const marginMatch = style.match(/margin(?:-[a-z]+)?\s*:\s*[^;]+/i);
+      if (marginMatch) parts.push(marginMatch[0].trim());
+      const displayMatch = style.match(/display\s*:\s*(block|inline|inline-block)/i);
+      if (displayMatch) parts.push(`display: ${displayMatch[1].toLowerCase()}`);
+      const clearMatch = style.match(/clear\s*:\s*(both|left|right|none)/i);
+      if (clearMatch) parts.push(`clear: ${clearMatch[1].toLowerCase()}`);
+
+      if (parts.length > 0) {
+        el.setAttribute('style', parts.join('; ') + ';');
       } else {
         el.removeAttribute('style');
       }
@@ -586,7 +573,18 @@ const TINYMCE_IT_I18N = {
   'Align left': 'Allinea a sinistra', 'Align center': 'Allinea al centro',
   'Align right': 'Allinea a destra', 'Justify': 'Giustifica',
   'Insert/edit link': 'Inserisci/modifica link', 'Remove link': 'Rimuovi link',
+  'Anchor': 'Ancora', 'Anchors': 'Ancore',
+  'Insert/edit anchor': 'Inserisci/modifica ancora',
+  'Id': 'Identificatore', 'ID': 'ID',
+  'Id should start with a letter, followed only by letters, numbers, dashes, dots, colons or underscores.': "L'ID deve iniziare con una lettera, seguita solo da lettere, numeri, trattini, punti o trattini bassi.",
   'Insert/edit image': 'Inserisci/modifica immagine', 'Insert/edit media': 'Inserisci/modifica media',
+  'Left (text wrap)': 'A sinistra (testo a lato)',
+  'Right (text wrap)': 'A destra (testo a lato)',
+  'Center (block)': 'Centrato (blocco)',
+  'Allinea a sinistra (testo a lato)': 'Allinea a sinistra (testo a lato)',
+  'Allinea a destra (testo a lato)': 'Allinea a destra (testo a lato)',
+  'Centrato (blocco)': 'Centrato (blocco)',
+  'Class': 'Classe', 'None': 'Nessuno',
   'Insert table': 'Inserisci tabella', 'Table': 'Tabella',
   'Source code': 'Codice sorgente', 'Fullscreen': 'Schermo intero',
   'Find and replace...': 'Trova e sostituisci...', 'Find': 'Trova', 'Replace': 'Sostituisci', 'Replace all': 'Sostituisci tutto',
@@ -817,7 +815,6 @@ class TinyMCEField extends HTMLElement {
   _applying = false; // Avoid loop while applying an external value
   _ready = false;
   _bootstrapped = false;
-  _markdownAutoDisabled = false;
 
   set field(f) {
     this._field = f || {};
@@ -832,7 +829,6 @@ class TinyMCEField extends HTMLElement {
   }
 
   _isMarkdownEnabled() {
-    if (this._markdownAutoDisabled) return false;
     return this._field?.markdown_enabled !== false && this._field?.markdown_enabled !== 'false';
   }
 
@@ -860,13 +856,6 @@ class TinyMCEField extends HTMLElement {
     if (!this._ready) {
       this._initialCleanValue = newVal;
       return;
-    }
-
-    // Auto-detect HTML if global markdown support is enabled:
-    const globalMdEnabled = this._field?.markdown_enabled !== false && this._field?.markdown_enabled !== 'false';
-    if (globalMdEnabled && !this._markdownAutoDisabled && isHtmlContent(newVal)) {
-      this._markdownAutoDisabled = true;
-      this._showHtmlDetectedBanner();
     }
 
     if (this._editor && this._ready) {
@@ -1022,83 +1011,6 @@ class TinyMCEField extends HTMLElement {
     `;
   }
 
-  _showHtmlDetectedBanner() {
-    if (!this.shadowRoot) return;
-    const wrap = this.shadowRoot.querySelector('.wrap');
-    if (!wrap) return;
-    if (wrap.querySelector('.html-detected-banner')) return;
-
-    const isDarkMode = this._detectDarkMode();
-    const isIt = detectItalianLocale(this._dCfg);
-
-    const banner = document.createElement('div');
-    banner.className = 'html-detected-banner';
-    banner.style.cssText = `
-      padding: 10px 14px;
-      background: ${isDarkMode ? '#292524' : '#fffbeb'};
-      border-bottom: 1px solid ${isDarkMode ? '#44403c' : '#fed7aa'};
-      color: ${isDarkMode ? '#fef08a' : '#92400e'};
-      font-size: 13px;
-      line-height: 1.4;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 12px;
-    `;
-
-    const title = isIt ? 'Codice HTML rilevato nel contenuto' : 'HTML content detected';
-    const message = isIt
-      ? 'Il supporto Markdown è stato disattivato automaticamente per questa pagina per preservare la formattazione, gli stili CSS e i tag HTML.'
-      : 'Markdown support has been automatically disabled for this page to preserve formatting, inline CSS styles, and HTML tags.';
-    const dismissLabel = isIt ? 'Nascondi avviso' : 'Dismiss';
-    const forceMdLabel = isIt ? 'Forza modalità Markdown' : 'Force Markdown mode';
-
-    banner.innerHTML = `
-      <div style="display: flex; align-items: flex-start; gap: 8px;">
-        <span style="font-size: 16px; line-height: 1; flex-shrink: 0;" aria-hidden="true">⚠️</span>
-        <div>
-          <strong style="color: ${isDarkMode ? '#ffffff' : '#78350f'};">${title}:</strong>
-          <span style="margin-left: 4px;">${message}</span>
-        </div>
-      </div>
-      <div style="display: flex; align-items: center; gap: 12px; flex-shrink: 0;">
-        <a href="#" class="force-md-btn" style="color: ${isDarkMode ? '#fbbf24' : '#b45309'}; font-size: 12px; text-decoration: underline;" title="${isIt ? 'Forza la conversione in Markdown (potrebbe alterare gli stili HTML)' : 'Force conversion to Markdown (may alter HTML styles)'}">${forceMdLabel}</a>
-        <button type="button" class="dismiss-btn" style="background: none; border: 1px solid ${isDarkMode ? '#78716c' : '#d97706'}; color: ${isDarkMode ? '#f5f5f4' : '#92400e'}; border-radius: 4px; padding: 2px 8px; font-size: 12px; cursor: pointer;">${dismissLabel}</button>
-      </div>
-    `;
-
-    const dismissBtn = banner.querySelector('.dismiss-btn');
-    if (dismissBtn) {
-      dismissBtn.addEventListener('click', (e) => {
-        e.preventDefault();
-        banner.remove();
-      });
-    }
-
-    const forceMdBtn = banner.querySelector('.force-md-btn');
-    if (forceMdBtn) {
-      forceMdBtn.addEventListener('click', (e) => {
-        e.preventDefault();
-        this._markdownAutoDisabled = false;
-        if (this._editor) {
-          const renderedHtml = this._editor.getContent();
-          const mdVal = htmlToMd(renderedHtml);
-          this._baselineValue = mdVal;
-          this._value = mdVal;
-          this._lastEmittedValue = mdVal;
-          const textarea = this.shadowRoot?.getElementById(this._editorId);
-          if (textarea) textarea.value = mdVal;
-          this._editor.setDirty(true);
-          this.dispatchEvent(new CustomEvent('change', { detail: mdVal, bubbles: true, composed: true }));
-          this.dispatchEvent(new CustomEvent('input', { detail: mdVal, bubbles: true, composed: true }));
-        }
-        banner.remove();
-      });
-    }
-
-    wrap.insertBefore(banner, wrap.firstChild);
-  }
-
   _esc(s) {
     const d = document.createElement('div');
     d.textContent = String(s ?? '');
@@ -1110,8 +1022,20 @@ class TinyMCEField extends HTMLElement {
     const mVal = f.menubar;
     const isMenubarEnabled = mVal === undefined || mVal === true || mVal === 'true' || mVal === 1 || mVal === '1';
     
+    let plugins = f.plugins || 'lists link image table code fullscreen searchreplace media anchor';
+    if (!plugins.includes('anchor')) {
+      plugins += ' anchor';
+    }
+
     // Ensure the toolbar contains forecolor and backcolor to allow changing the text/background color
-    let toolbar = f.toolbar || 'undo redo | blocks | bold italic underline forecolor backcolor | alignleft aligncenter alignright alignjustify | bullist numlist | link image media table | code fullscreen';
+    let toolbar = f.toolbar || 'undo redo | blocks | bold italic underline forecolor backcolor | alignleft aligncenter alignright alignjustify | bullist numlist | link anchor image media table | code fullscreen';
+    if (toolbar && !toolbar.includes('anchor')) {
+      if (toolbar.includes('link')) {
+        toolbar = toolbar.replace('link', 'link anchor');
+      } else {
+        toolbar += ' | anchor';
+      }
+    }
     if (toolbar && !toolbar.includes('forecolor')) {
       // If manually defined in the user's blueprint but does not contain color picker options, inject them
       toolbar = toolbar.replace('bold italic underline', 'bold italic underline forecolor backcolor');
@@ -1130,7 +1054,7 @@ class TinyMCEField extends HTMLElement {
     return {
       height: parseInt(f.height, 10) || 500,
       menubar: isMenubarEnabled,
-      plugins: f.plugins || 'lists link image table code fullscreen searchreplace media',
+      plugins: plugins,
       toolbar: toolbar,
     };
   }
@@ -1189,9 +1113,21 @@ class TinyMCEField extends HTMLElement {
       menubar: cfg.menubar,
       plugins: cfg.plugins,
       toolbar: cfg.toolbar,
-      extended_valid_elements: 'a[href|target|rel|title|class|id|style|download|data-*],img[src|alt|title|width|height|class|id|style|data-*]',
+      extended_valid_elements: 'a[href|target|rel|title|class|id|name|style|download|data-*],img[src|alt|title|width|height|class|id|style|data-*]',
+      image_advtab: true,
+      image_class_list: [
+        { title: 'None', value: '' },
+        { title: useItalian ? 'Allinea a sinistra (testo a lato)' : 'Align left (text wrap)', value: 'align-left' },
+        { title: useItalian ? 'Allinea a destra (testo a lato)' : 'Align right (text wrap)', value: 'align-right' },
+        { title: useItalian ? 'Centrato (blocco)' : 'Center (block)', value: 'align-center' }
+      ],
       link_default_protocol: 'https',
-      link_assume_external_targets: 'https',
+      link_assume_external_targets: false,
+      link_attributes_postprocess: (attrs) => {
+        if (attrs && attrs.href) {
+          attrs.href = normalizeLinkUrl(attrs.href);
+        }
+      },
       link_target_list: [
         { title: 'None', value: '' },
         { title: 'New window', value: '_blank' },
@@ -1259,6 +1195,21 @@ class TinyMCEField extends HTMLElement {
           border-left-color: #dc2626 !important;
           background-color: ${isDarkMode ? '#450a0a' : '#fef2f2'} !important;
           color: ${isDarkMode ? '#fecaca' : '#7f1d1d'} !important;
+        }
+        img.align-left, img[style*="float: left"], img[style*="float:left"] {
+          float: left !important;
+          margin: 0 1.25rem 1rem 0 !important;
+          max-width: 50% !important;
+        }
+        img.align-right, img[style*="float: right"], img[style*="float:right"] {
+          float: right !important;
+          margin: 0 0 1rem 1.25rem !important;
+          max-width: 50% !important;
+        }
+        img.align-center, img[style*="margin: auto"] {
+          display: block !important;
+          margin: 1rem auto !important;
+          clear: both !important;
         }
       `,
       // Allows TinyMCE to detect the shadow root host for external click handling
@@ -1341,13 +1292,6 @@ class TinyMCEField extends HTMLElement {
           const initialVal = this._value || '';
           this._initialCleanValue = initialVal;
 
-          // Auto-detect HTML if markdown is globally enabled:
-          const globalMdEnabled = this._field?.markdown_enabled !== false && this._field?.markdown_enabled !== 'false';
-          if (globalMdEnabled && isHtmlContent(initialVal)) {
-            this._markdownAutoDisabled = true;
-            this._showHtmlDetectedBanner();
-          }
-
           const isMdEnabled = this._isMarkdownEnabled();
           const initialHtml = isMdEnabled ? mdToHtml(initialVal) : initialVal;
           this._applying = true;
@@ -1412,7 +1356,7 @@ class TinyMCEField extends HTMLElement {
             return;
           }
 
-          if (finalVal !== this._value) {
+          if (finalVal !== this._value || (editor.isDirty() && finalVal !== this._baselineValue)) {
             this._value = finalVal;
             this._lastEmittedValue = finalVal;
             const textarea = this.shadowRoot?.getElementById(this._editorId);
@@ -1463,7 +1407,75 @@ class TinyMCEField extends HTMLElement {
           }
         };
 
-        editor.on('change input keyup undo redo ExecCommand SetContent NodeChange Paste Cut ClearUndos dirty', handleEditorEvent);
+        const applyImgAlignment = (align) => {
+          const selected = editor.selection.getNode();
+          const img = (selected && selected.nodeName === 'IMG') ? selected : (selected ? selected.querySelector('img') : null);
+          if (!img) return;
+
+          editor.undoManager.transact(() => {
+            img.classList.remove('align-left', 'align-right', 'align-center');
+            let currentStyle = img.getAttribute('style') || '';
+            currentStyle = currentStyle
+              .replace(/float\s*:\s*(left|right|none)\s*;?/gi, '')
+              .replace(/margin(?:-[a-z]+)?\s*:\s*[^;]+;?/gi, '')
+              .replace(/display\s*:\s*(block|inline|inline-block)\s*;?/gi, '')
+              .replace(/clear\s*:\s*(both|none)\s*;?/gi, '')
+              .trim();
+
+            if (align === 'left') {
+              img.classList.add('align-left');
+              img.setAttribute('style', (currentStyle ? currentStyle + ' ' : '') + 'float: left; margin: 0 1rem 1rem 0;');
+            } else if (align === 'right') {
+              img.classList.add('align-right');
+              img.setAttribute('style', (currentStyle ? currentStyle + ' ' : '') + 'float: right; margin: 0 0 1rem 1rem;');
+            } else if (align === 'center') {
+              img.classList.add('align-center');
+              img.setAttribute('style', (currentStyle ? currentStyle + ' ' : '') + 'display: block; margin: 1rem auto; clear: both;');
+            } else {
+              if (currentStyle) {
+                img.setAttribute('style', currentStyle);
+              } else {
+                img.removeAttribute('style');
+              }
+            }
+            editor.setDirty(true);
+            editor.nodeChanged();
+            notifyChange();
+          });
+        };
+
+        editor.ui.registry.addButton('imgalignleft', {
+          icon: 'align-left',
+          tooltip: useItalian ? 'Allinea immagine a sinistra (testo a lato)' : 'Align image left (text wrap)',
+          onAction: () => applyImgAlignment('left')
+        });
+
+        editor.ui.registry.addButton('imgalignright', {
+          icon: 'align-right',
+          tooltip: useItalian ? 'Allinea immagine a destra (testo a lato)' : 'Align image right (text wrap)',
+          onAction: () => applyImgAlignment('right')
+        });
+
+        editor.ui.registry.addButton('imgaligncenter', {
+          icon: 'align-center',
+          tooltip: useItalian ? 'Centra immagine (blocco)' : 'Align image center (block)',
+          onAction: () => applyImgAlignment('center')
+        });
+
+        editor.ui.registry.addButton('imgalignnone', {
+          icon: 'close',
+          tooltip: useItalian ? 'Rimuovi allineamento' : 'Remove alignment',
+          onAction: () => applyImgAlignment('none')
+        });
+
+        editor.ui.registry.addContextToolbar('imagealignments', {
+          predicate: (node) => node && node.nodeName === 'IMG',
+          items: 'image | imgalignleft imgalignright imgaligncenter imgalignnone',
+          position: 'node',
+          scope: 'node'
+        });
+
+        editor.on('change input keyup undo redo ExecCommand SetContent NodeChange Paste Cut ClearUndos dirty CloseWindow', handleEditorEvent);
       },
     };
 

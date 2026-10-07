@@ -302,12 +302,12 @@ class ModernEditorPlugin extends Plugin
 
         $plugins = $this->yamlString((string) $this->config->get(
             'plugins.modern-editor.plugins',
-            'lists link image table code fullscreen searchreplace media'
+            'lists link image table code fullscreen searchreplace media anchor'
         ));
 
         $toolbar = $this->yamlString((string) $this->config->get(
             'plugins.modern-editor.toolbar',
-            'undo redo | blocks | bold italic underline forecolor backcolor | alignleft aligncenter alignright alignjustify | bullist numlist | link image media table | code fullscreen'
+            'undo redo | blocks | bold italic underline forecolor backcolor | alignleft aligncenter alignright alignjustify | bullist numlist | link anchor image media table | code fullscreen'
         ));
 
         $editorUrl = $this->getEditorScriptUrl();
