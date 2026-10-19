@@ -317,6 +317,9 @@ class ModernEditorPlugin extends Plugin
         if ($this->config->get('system.pages.markdown.enabled') === false) {
             $markdownEnabled = false;
         }
+        if ($templateName === 'html' || str_ends_with($templateName, '.html')) {
+            $markdownEnabled = false;
+        }
         $markdownEnabledYaml = $markdownEnabled ? 'true' : 'false';
 
         return <<<YAML
@@ -394,6 +397,17 @@ YAML;
             if ($this->config->get('system.pages.markdown.enabled') === false) {
                 $markdownEnabled = false;
             }
+            if (isset($fields['content']['markdown']) && ($fields['content']['markdown'] === false || $fields['content']['markdown'] === 'false')) {
+                $markdownEnabled = false;
+            }
+            if (isset($fields['content']['markdown_enabled']) && ($fields['content']['markdown_enabled'] === false || $fields['content']['markdown_enabled'] === 'false')) {
+                $markdownEnabled = false;
+            }
+            $procMd = $blueprint->get('form/fields/header.process.markdown/default');
+            if ($procMd === 0 || $procMd === false || $procMd === '0' || $procMd === 'false') {
+                $markdownEnabled = false;
+            }
+
             $fields['content'] = array_merge($fields['content'], [
                 'type' => 'moderneditor',
                 'height' => $this->config->get('plugins.modern-editor.height', '500'),
@@ -416,9 +430,43 @@ YAML;
      */
     private function updateModernEditorFields(array &$fields): void
     {
-        $markdownEnabled = (bool) $this->config->get('plugins.modern-editor.markdown_enabled', true);
+        $globalMarkdownEnabled = (bool) $this->config->get('plugins.modern-editor.markdown_enabled', true);
         if ($this->config->get('system.pages.markdown.enabled') === false) {
-            $markdownEnabled = false;
+            $globalMarkdownEnabled = false;
+        }
+
+        // Detect if the currently edited page disables markdown via header.process.markdown,
+        // header.markdown, .html extension, or html template.
+        $pageDisablesMarkdown = false;
+        try {
+            $admin = $this->grav['admin'] ?? null;
+            $page = null;
+            if ($admin && method_exists($admin, 'page')) {
+                $page = $admin->page(true);
+            }
+            if (!$page && isset($this->grav['page'])) {
+                $page = $this->grav['page'];
+            }
+            if ($page) {
+                $header = (array) ($page->header() ? (array) $page->header() : []);
+                $process = (array) ($header['process'] ?? []);
+                if (isset($process['markdown']) && ($process['markdown'] === false || $process['markdown'] === 0 || $process['markdown'] === '0' || $process['markdown'] === 'false')) {
+                    $pageDisablesMarkdown = true;
+                }
+                if (isset($header['markdown']) && ($header['markdown'] === false || $header['markdown'] === 0 || $header['markdown'] === '0' || $header['markdown'] === 'false')) {
+                    $pageDisablesMarkdown = true;
+                }
+                $ext = method_exists($page, 'extension') ? $page->extension() : '';
+                if ($ext === 'html' || $ext === '.html') {
+                    $pageDisablesMarkdown = true;
+                }
+                $tpl = method_exists($page, 'template') ? $page->template() : '';
+                if ($tpl === 'html' || str_ends_with($tpl, '.html')) {
+                    $pageDisablesMarkdown = true;
+                }
+            }
+        } catch (\Throwable $e) {
+            // defensive fallback
         }
 
         foreach ($fields as $key => &$field) {
@@ -427,12 +475,23 @@ YAML;
             }
 
             if (($field['type'] ?? null) === 'moderneditor') {
+                $fieldMarkdownEnabled = $globalMarkdownEnabled;
+                if ($pageDisablesMarkdown) {
+                    $fieldMarkdownEnabled = false;
+                }
+                if (isset($field['markdown']) && ($field['markdown'] === false || $field['markdown'] === 'false')) {
+                    $fieldMarkdownEnabled = false;
+                }
+                if (isset($field['markdown_enabled']) && ($field['markdown_enabled'] === false || $field['markdown_enabled'] === 'false')) {
+                    $fieldMarkdownEnabled = false;
+                }
+
                 $field['editor_url'] = $this->getEditorScriptUrl();
                 $field['height'] = $this->config->get('plugins.modern-editor.height', '500');
                 $field['menubar'] = (bool) $this->config->get('plugins.modern-editor.menubar', false);
                 $field['plugins'] = $this->config->get('plugins.modern-editor.plugins');
                 $field['toolbar'] = $this->config->get('plugins.modern-editor.toolbar');
-                $field['markdown_enabled'] = $markdownEnabled;
+                $field['markdown_enabled'] = $fieldMarkdownEnabled;
             }
 
             if (isset($field['fields']) && is_array($field['fields'])) {
