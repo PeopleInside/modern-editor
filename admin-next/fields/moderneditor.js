@@ -1078,18 +1078,6 @@ class TinyMCEField extends HTMLElement {
       return false;
     }
 
-    // 7. Check if content is structured HTML (starts with block elements like <p>, <div>, <section>, <h1>)
-    // and contains no Markdown headings (# ) or Markdown links [text](url). On an HTML page in Grav,
-    // paragraphs and elements are stored directly as HTML tags.
-    const rawVal = (this._value || this._initialCleanValue || '').trim();
-    if (rawVal.startsWith('<') && !rawVal.startsWith('<!--')) {
-      if (/^<(?:p|div|section|article|table|h[1-6]|main|header|footer|aside|blockquote|ul|ol)\b/i.test(rawVal)) {
-        if (!/(?:^|\n)#{1,6}\s+/.test(rawVal) && !/\[[^\]]+\]\([^)]+\)/.test(rawVal)) {
-          return false;
-        }
-      }
-    }
-
     return true;
   }
 
@@ -1161,7 +1149,12 @@ class TinyMCEField extends HTMLElement {
         this._applying = false;
         const renderedHtml = this._editor.getContent();
         this._baselineValue = isMdEnabled ? htmlToMd(renderedHtml) : renderedHtml;
-        this._initialCleanValue = newVal;
+        this._initialCleanValue = this._baselineValue;
+        this._value = this._baselineValue;
+        this._lastEmittedValue = this._baselineValue;
+        if (this._lightTextarea) {
+          this._lightTextarea.value = this._baselineValue;
+        }
       }
     }
   }
@@ -1647,9 +1640,9 @@ class TinyMCEField extends HTMLElement {
         editor.on('init', () => {
           this._editor = editor;
           const initialVal = this._value || '';
-          this._initialCleanValue = initialVal;
 
           const isMdEnabled = this._isMarkdownEnabled();
+          this._lastKnownMdEnabled = isMdEnabled;
           let initialHtml = isMdEnabled ? mdToHtml(initialVal) : initialVal;
           if (!isMdEnabled) {
             initialHtml = cleanAsterisksInHtml(initialHtml);
@@ -1662,6 +1655,12 @@ class TinyMCEField extends HTMLElement {
 
           const renderedHtml = editor.getContent();
           this._baselineValue = isMdEnabled ? htmlToMd(renderedHtml) : renderedHtml;
+          this._value = this._baselineValue;
+          this._initialCleanValue = this._baselineValue;
+          this._lastEmittedValue = this._baselineValue;
+          if (this._lightTextarea) {
+            this._lightTextarea.value = this._baselineValue;
+          }
           this._ready = true;
         });
         // Fix: pasted content (typically copied from WordPress or other
@@ -1682,10 +1681,10 @@ class TinyMCEField extends HTMLElement {
         // Fix: toolbar, formatting, and typing actions need to notify Admin Next
         // so that the Save button is enabled immediately.
         // Crucially, we only emit change/input events when actual unsaved changes exist
-        // (editor.isDirty() is true and the markdown value differs from baseline),
-        // preventing false-positive "unsaved changes" prompts when opening and leaving pages.
+        // (content differs from baseline), preventing false-positive "unsaved changes" prompts
+        // when opening, viewing, clicking around, or leaving pages.
         const notifyChange = (force = false) => {
-          if (this._applying || !this._ready) return;
+          if (this._applying || !this._ready || !editor) return;
 
           const html = editor.getContent();
           const isMdEnabled = this._isMarkdownEnabled();
@@ -1695,22 +1694,32 @@ class TinyMCEField extends HTMLElement {
           }
 
           const hasDirty = editor.isDirty ? editor.isDirty() : false;
-          const valChanged = finalVal !== this._value;
           const baselineDiff = finalVal !== this._baselineValue;
 
-          // If no modification occurred and not forced, return
-          if (!hasDirty && !valChanged && !baselineDiff && !force) {
-            return;
-          }
+          // If not forced:
+          // A genuine modification exists only if the converted content differs from
+          // our initialized baseline (_baselineValue).
+          // If the markdown value matches baseline, no unsaved changes exist (e.g. initial render,
+          // caret navigation, selection change, or undo back to starting point).
+          if (!force) {
+            if (!baselineDiff) {
+              // Content matches clean baseline: synchronize internal value quietly without firing change events or marking form dirty
+              this._value = finalVal;
+              this._lastEmittedValue = finalVal;
+              if (this._lightTextarea) {
+                this._lightTextarea.value = finalVal;
+              }
+              const textarea = this.shadowRoot?.getElementById(this._editorId);
+              if (textarea) {
+                textarea.value = finalVal;
+              }
+              return;
+            }
 
-          // If user reverted back to the initial clean value and editor is not dirty
-          if (finalVal === this._initialCleanValue && !hasDirty && !valChanged) {
-            this._value = finalVal;
-            this._lastEmittedValue = finalVal;
-            if (this._lightTextarea) this._lightTextarea.value = finalVal;
-            const textarea = this.shadowRoot?.getElementById(this._editorId);
-            if (textarea) textarea.value = finalVal;
-            return;
+            // If editor has not been marked dirty by TinyMCE AND there was no baseline difference, return
+            if (!hasDirty && !baselineDiff) {
+              return;
+            }
           }
 
           this._value = finalVal;
