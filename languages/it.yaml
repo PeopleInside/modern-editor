@@ -21,4 +21,4 @@ PLUGIN_MODERN_EDITOR:
   TOOLBAR: Toolbar
   TOOLBAR_HELP: "Configurazione della toolbar, secondo la sintassi ufficiale TinyMCE."
   MARKDOWN_ENABLED: Supporto Markdown
-  MARKDOWN_ENABLED_HELP: "Se abilitato, l'editor converte il contenuto HTML della pagina in Markdown durante il salvataggio e viceversa al caricamento. Se disabilitato, l'editor funziona interamente in modalità HTML raw e le librerie marked e turndown non vengono caricate."
+  MARKDOWN_ENABLED_HELP: "Se abilitato, l'editor converte il contenuto HTML della pagina in Markdown durante il salvataggio e viceversa al caricamento tramite le librerie marked e turndown. Clicca sui link delle librerie nella scheda di stato per accedere alla documentazione ufficiale. Se disabilitato, l'editor funziona in modalità HTML raw."

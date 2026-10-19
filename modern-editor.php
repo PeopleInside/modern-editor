@@ -81,7 +81,33 @@ class ModernEditorPlugin extends Plugin
             // params, which never reach PHP under Admin2 (it's a decoupled
             // SPA served by its own thin wrapper — see onApiRegisterRoutes()).
             'onApiRegisterRoutes' => ['onApiRegisterRoutes', 0],
+            'onSchedulerInitialized' => ['onSchedulerInitialized', 0],
         ]);
+    }
+
+    /**
+     * Register scheduled cron job with Grav Scheduler (Grav 1.6+ / 2.0+).
+     * Runs daily to check updates for TinyMCE and Markdown libraries, and
+     * automatically downloads and installs them if auto-update is enabled.
+     */
+    public function onSchedulerInitialized(Event $event): void
+    {
+        $scheduler = $event['scheduler'] ?? null;
+        if (!$scheduler) {
+            return;
+        }
+
+        $job = $scheduler->addFunction([$this, 'runSchedulerJob'], 'modern-editor-update-check');
+        $job->daily();
+    }
+
+    /**
+     * Callback executed by the Grav Scheduler cron job.
+     */
+    public function runSchedulerJob(): bool
+    {
+        $this->performPeriodicUpdateCheck(true, true);
+        return true;
     }
 
     /*
@@ -645,35 +671,13 @@ YAML;
         $isInstalled = file_exists($localJs);
         $installedVersion = $isInstalled && file_exists($versionFile) ? trim((string) @file_get_contents($versionFile)) : null;
 
-        if ($latestVersion) {
-            if (isset($this->grav['session'])) {
+        // Also check the markdown helper libraries
+        $latestMarked = $this->fetchLatestNpmVersion('marked');
+        $latestTurndown = $this->fetchLatestNpmVersion('turndown');
+        if (isset($this->grav['session'])) {
+            if ($latestVersion) {
                 $this->grav['session']->modern_editor_latest_version = $latestVersion;
             }
-
-            if ($installedVersion === $latestVersion) {
-                $msg = $lang === 'it'
-                    ? "La versione locale di TinyMCE è già aggiornata alla versione più recente: v{$installedVersion}!"
-                    : "The local version of TinyMCE is already updated to the latest version: v{$installedVersion}!";
-            } else {
-                $msg = $lang === 'it'
-                    ? "È disponibile un aggiornamento! Nuova versione: v{$latestVersion}. Usa il pulsante nella scheda di stato per scaricarla."
-                    : "An update is available! New version: v{$latestVersion}. Use the button in the status card to download it.";
-            }
-            $status = 'success';
-        } else {
-            $msg = $lang === 'it'
-                ? "Impossibile verificare gli aggiornamenti di TinyMCE in questo momento."
-                : "Unable to check for TinyMCE updates at this moment.";
-            $status = 'error';
-        }
-
-        // Also check the markdown helper libraries, but only when local
-        // mode is active (they're irrelevant in CDN mode, so skip the
-        // extra network calls in that case).
-        $editorSource = $this->config->get('plugins.modern-editor.editor_source', 'local');
-        if ($editorSource === 'local' && isset($this->grav['session'])) {
-            $latestMarked = $this->fetchLatestNpmVersion('marked');
-            $latestTurndown = $this->fetchLatestNpmVersion('turndown');
             if ($latestMarked) {
                 $this->grav['session']->modern_editor_latest_marked_version = $latestMarked;
             }
@@ -681,6 +685,96 @@ YAML;
                 $this->grav['session']->modern_editor_latest_turndown_version = $latestTurndown;
             }
         }
+
+        $markedInfo = $this->getMarkdownLibraryInstallInfo('marked', 'marked.umd.js');
+        $turndownInfo = $this->getMarkdownLibraryInstallInfo('turndown', 'turndown.js');
+        $editorSource = $this->config->get('plugins.modern-editor.editor_source', 'local');
+
+        $status = 'success';
+        $hasAnyUpdate = false;
+        $items = [];
+
+        // TinyMCE
+        if ($latestVersion) {
+            if ($editorSource === 'local') {
+                if ($installedVersion && $installedVersion === $latestVersion) {
+                    $items[] = $lang === 'it'
+                        ? "• TinyMCE: aggiornato all'ultima versione (v{$installedVersion})"
+                        : "• TinyMCE: up to date with the latest version (v{$installedVersion})";
+                } elseif ($installedVersion) {
+                    $hasAnyUpdate = true;
+                    $items[] = $lang === 'it'
+                        ? "• TinyMCE: aggiornamento disponibile! Nuova versione v{$latestVersion} (installata: v{$installedVersion})"
+                        : "• TinyMCE: update available! New version v{$latestVersion} (installed: v{$installedVersion})";
+                } else {
+                    $hasAnyUpdate = true;
+                    $items[] = $lang === 'it'
+                        ? "• TinyMCE: non ancora installato localmente (ultima su NPM: v{$latestVersion})"
+                        : "• TinyMCE: not installed locally yet (latest on NPM: v{$latestVersion})";
+                }
+            } else {
+                $items[] = $lang === 'it'
+                    ? "• TinyMCE (Cloud CDN): v{$latestVersion} disponibile su NPM"
+                    : "• TinyMCE (Cloud CDN): v{$latestVersion} available on NPM";
+            }
+        } else {
+            $status = 'error';
+            $items[] = $lang === 'it'
+                ? "• TinyMCE: impossibile verificare la versione su NPM al momento"
+                : "• TinyMCE: unable to verify version on NPM at this time";
+        }
+
+        // marked
+        if ($latestMarked) {
+            if ($markedInfo['installed']) {
+                if ($markedInfo['version'] === $latestMarked) {
+                    $items[] = $lang === 'it'
+                        ? "• marked: aggiornato all'ultima versione (v{$markedInfo['version']})"
+                        : "• marked: up to date with the latest version (v{$markedInfo['version']})";
+                } else {
+                    $hasAnyUpdate = true;
+                    $items[] = $lang === 'it'
+                        ? "• marked: aggiornamento disponibile! Nuova versione v{$latestMarked} (installata: v{$markedInfo['version']})"
+                        : "• marked: update available! New version v{$latestMarked} (installed: v{$markedInfo['version']})";
+                }
+            } else {
+                $items[] = $lang === 'it'
+                    ? "• marked: in uso da CDN (ultima versione su NPM: v{$latestMarked})"
+                    : "• marked: loaded from CDN (latest on NPM: v{$latestMarked})";
+            }
+        }
+
+        // turndown
+        if ($latestTurndown) {
+            if ($turndownInfo['installed']) {
+                if ($turndownInfo['version'] === $latestTurndown) {
+                    $items[] = $lang === 'it'
+                        ? "• turndown: aggiornato all'ultima versione (v{$turndownInfo['version']})"
+                        : "• turndown: up to date with the latest version (v{$turndownInfo['version']})";
+                } else {
+                    $hasAnyUpdate = true;
+                    $items[] = $lang === 'it'
+                        ? "• turndown: aggiornamento disponibile! Nuova versione v{$latestTurndown} (installata: v{$turndownInfo['version']})"
+                        : "• turndown: update available! New version v{$latestTurndown} (installed: v{$turndownInfo['version']})";
+                }
+            } else {
+                $items[] = $lang === 'it'
+                    ? "• turndown: in uso da CDN (ultima versione su NPM: v{$latestTurndown})"
+                    : "• turndown: loaded from CDN (latest on NPM: v{$latestTurndown})";
+            }
+        }
+
+        if ($lang === 'it') {
+            $header = $hasAnyUpdate
+                ? "Verifica completata: sono disponibili nuovi aggiornamenti!"
+                : "Verifica completata: l'editor e le librerie Markdown sono aggiornati!";
+        } else {
+            $header = $hasAnyUpdate
+                ? "Update check complete: new updates are available!"
+                : "Update check complete: editor and Markdown libraries are up to date!";
+        }
+
+        $msg = $header . "\n\n" . implode("\n", $items);
 
         $this->performPeriodicUpdateCheck(true);
 
@@ -703,9 +797,9 @@ YAML;
         return [];
     }
 
-    public function performPeriodicUpdateCheck(bool $force = false): void
+    public function performPeriodicUpdateCheck(bool $force = false, bool $fromCron = false): void
     {
-        if (!$this->isAdminContext()) {
+        if (!$fromCron && !$this->isAdminContext()) {
             return;
         }
 
@@ -1322,36 +1416,61 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
             }
         }
 
-        if ($editorSource === 'local') {
-            $markedVerEsc = htmlspecialchars($markedInfo['version'] ?? '', ENT_QUOTES, 'UTF-8');
-            $turndownVerEsc = htmlspecialchars($turndownInfo['version'] ?? '', ENT_QUOTES, 'UTF-8');
-            $latestMarkedEsc = htmlspecialchars($latestMarked ?? '', ENT_QUOTES, 'UTF-8');
-            $latestTurndownEsc = htmlspecialchars($latestTurndown ?? '', ENT_QUOTES, 'UTF-8');
-            $markedDownloadUrlEsc = htmlspecialchars($markedDownloadUrl, ENT_QUOTES, 'UTF-8');
-            $turndownDownloadUrlEsc = htmlspecialchars($turndownDownloadUrl, ENT_QUOTES, 'UTF-8');
-            $markedUpdateUrlEsc = htmlspecialchars($markedUpdateUrl, ENT_QUOTES, 'UTF-8');
-            $turndownUpdateUrlEsc = htmlspecialchars($turndownUpdateUrl, ENT_QUOTES, 'UTF-8');
+        $markedVerEsc = htmlspecialchars($markedInfo['version'] ?? '', ENT_QUOTES, 'UTF-8');
+        $turndownVerEsc = htmlspecialchars($turndownInfo['version'] ?? '', ENT_QUOTES, 'UTF-8');
+        $latestMarkedEsc = htmlspecialchars($latestMarked ?? '', ENT_QUOTES, 'UTF-8');
+        $latestTurndownEsc = htmlspecialchars($latestTurndown ?? '', ENT_QUOTES, 'UTF-8');
+        $markedDownloadUrlEsc = htmlspecialchars($markedDownloadUrl, ENT_QUOTES, 'UTF-8');
+        $turndownDownloadUrlEsc = htmlspecialchars($turndownDownloadUrl, ENT_QUOTES, 'UTF-8');
+        $markedUpdateUrlEsc = htmlspecialchars($markedUpdateUrl, ENT_QUOTES, 'UTF-8');
+        $turndownUpdateUrlEsc = htmlspecialchars($turndownUpdateUrl, ENT_QUOTES, 'UTF-8');
 
-            $mdTitle = $lang === 'it' ? 'Librerie Markdown (marked / turndown)' : 'Markdown libraries (marked / turndown)';
-            $mdIntro = $lang === 'it'
-                ? "Usate per la conversione markdown ↔ HTML nell'editor. Se non ancora installate, il plugin le carica temporaneamente dalla CDN jsDelivr finché non vengono scaricate qui sotto."
-                : "Used for markdown ↔ HTML conversion in the editor. Until downloaded below, the plugin temporarily loads them from the jsDelivr CDN.";
+        $mdTitle = $lang === 'it' 
+            ? "Librerie Markdown (<a href='https://marked.js.org/' target='_blank' rel='noopener noreferrer' style='color: #2563eb; text-decoration: underline;' title='Apri documentazione ufficiale di marked'>marked ↗</a> / <a href='https://github.com/mixmark-io/turndown' target='_blank' rel='noopener noreferrer' style='color: #2563eb; text-decoration: underline;' title='Apri repository ufficiale di turndown'>turndown ↗</a>)" 
+            : "Markdown libraries (<a href='https://marked.js.org/' target='_blank' rel='noopener noreferrer' style='color: #2563eb; text-decoration: underline;' title='Open marked documentation'>marked ↗</a> / <a href='https://github.com/mixmark-io/turndown' target='_blank' rel='noopener noreferrer' style='color: #2563eb; text-decoration: underline;' title='Open turndown repository'>turndown ↗</a>)";
+        $mdIntro = $lang === 'it'
+            ? "Usate per la conversione markdown ↔ HTML nell'editor. Clicca sul nome della libreria per aprire la relativa documentazione ufficiale."
+            : "Used for markdown ↔ HTML conversion in the editor. Click the library name to open its official documentation page.";
+        $checkLibUpdatesLabel = $lang === 'it' ? "Verifica aggiornamenti librerie" : "Check library updates";
 
-            $html .= "<div class='modern-editor-box' style='padding: 14px 18px; border-radius: 4px; margin-top: 12px;'>";
-            $html .= "<p class='modern-editor-box-title' style='margin: 0 0 4px 0; font-size: 14px; font-weight: bold;'>{$mdTitle}</p>";
-            $html .= "<p style='margin: 0 0 12px 0; font-size: 12.5px; line-height: 1.4;'>{$mdIntro}</p>";
+        $html .= "<div class='modern-editor-box' style='padding: 14px 18px; border-radius: 4px; margin-top: 12px;'>";
+        $html .= "<p class='modern-editor-box-title' style='margin: 0 0 4px 0; font-size: 14px; font-weight: bold;'>{$mdTitle}</p>";
+        $html .= "<p style='margin: 0 0 12px 0; font-size: 12.5px; line-height: 1.4;'>{$mdIntro}</p>";
 
-            foreach ([
-                ['name' => 'marked', 'info' => $markedInfo, 'latestEsc' => $latestMarkedEsc, 'verEsc' => $markedVerEsc, 'downloadUrl' => $markedDownloadUrlEsc, 'updateUrl' => $markedUpdateUrlEsc, 'pinned' => self::MARKED_VERSION],
-                ['name' => 'turndown', 'info' => $turndownInfo, 'latestEsc' => $latestTurndownEsc, 'verEsc' => $turndownVerEsc, 'downloadUrl' => $turndownDownloadUrlEsc, 'updateUrl' => $turndownUpdateUrlEsc, 'pinned' => self::TURNDOWN_VERSION],
-            ] as $lib) {
-                $isInstalled = $lib['info']['installed'];
-                $hasLibError = !empty($lib['info']['error']);
+        $libraries = [
+            [
+                'name' => 'marked',
+                'url' => 'https://marked.js.org/',
+                'title' => $lang === 'it' ? 'Apri documentazione ufficiale di marked (marked.js.org)' : 'Open official marked documentation (marked.js.org)',
+                'info' => $markedInfo,
+                'latestEsc' => $latestMarkedEsc,
+                'verEsc' => $markedVerEsc,
+                'downloadUrl' => $markedDownloadUrlEsc,
+                'updateUrl' => $markedUpdateUrlEsc,
+                'pinned' => self::MARKED_VERSION
+            ],
+            [
+                'name' => 'turndown',
+                'url' => 'https://github.com/mixmark-io/turndown',
+                'title' => $lang === 'it' ? 'Apri repository GitHub ufficiale di turndown' : 'Open official turndown GitHub repository',
+                'info' => $turndownInfo,
+                'latestEsc' => $latestTurndownEsc,
+                'verEsc' => $turndownVerEsc,
+                'downloadUrl' => $turndownDownloadUrlEsc,
+                'updateUrl' => $turndownUpdateUrlEsc,
+                'pinned' => self::TURNDOWN_VERSION
+            ],
+        ];
 
-                $html .= "<div style='display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 0; border-top: 1px solid rgba(127,127,127,0.15);'>";
-                $html .= "<div style='font-size: 13px;'>";
-                $html .= "<strong>{$lib['name']}</strong> — ";
+        foreach ($libraries as $lib) {
+            $isInstalled = $lib['info']['installed'];
+            $hasLibError = !empty($lib['info']['error']);
 
+            $html .= "<div style='display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 0; border-top: 1px solid rgba(127,127,127,0.15);'>";
+            $html .= "<div style='font-size: 13px;'>";
+            $html .= "<a href='{$lib['url']}' target='_blank' rel='noopener noreferrer' style='color: #2563eb; text-decoration: underline; font-weight: bold;' title='{$lib['title']}'>{$lib['name']} ↗</a> — ";
+
+            if ($editorSource === 'local') {
                 if ($isInstalled) {
                     $statusLabel = $lang === 'it' ? "installata, self-hosted, v{$lib['verEsc']}" : "installed locally, v{$lib['verEsc']}";
                     $html .= "<span style='color: #059669;'>✅ {$statusLabel}</span>";
@@ -1363,13 +1482,22 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
                     $notInstalledLabel = $lang === 'it' ? 'non installata — in uso da CDN' : 'not installed — currently loaded from CDN';
                     $html .= "<span style='color: #b45309;'>⚠️ {$notInstalledLabel}</span>";
                 }
-
-                if ($hasLibError) {
-                    $html .= "<div class='modern-editor-inline-error' style='margin-top: 6px; font-size: 11.5px; padding: 6px; border-radius: 4px; font-family: monospace;'>" . htmlspecialchars($lib['info']['error'], ENT_QUOTES, 'UTF-8') . "</div>";
+            } else {
+                $cdnLabel = $lang === 'it' ? 'in uso tramite Cloud CDN' : 'in use via Cloud CDN';
+                $html .= "<span style='color: #2563eb;'>🌐 {$cdnLabel}</span>";
+                if ($lib['latestEsc'] !== '') {
+                    $latestLabel = $lang === 'it' ? "ultima su NPM: v{$lib['latestEsc']}" : "latest on NPM: v{$lib['latestEsc']}";
+                    $html .= " <span style='color: #6b7280;'>({$latestLabel})</span>";
                 }
-                $html .= "</div>";
+            }
 
-                $html .= "<div style='display: flex; gap: 6px; flex-shrink: 0;'>";
+            if ($hasLibError) {
+                $html .= "<div class='modern-editor-inline-error' style='margin-top: 6px; font-size: 11.5px; padding: 6px; border-radius: 4px; font-family: monospace;'>" . htmlspecialchars($lib['info']['error'], ENT_QUOTES, 'UTF-8') . "</div>";
+            }
+            $html .= "</div>";
+
+            $html .= "<div style='display: flex; gap: 6px; flex-shrink: 0;'>";
+            if ($editorSource === 'local') {
                 if (!$isInstalled) {
                     $downloadLabel = $lang === 'it' ? "Scarica v{$lib['pinned']}" : "Download v{$lib['pinned']}";
                     $html .= "<a class='button button-small' href='{$lib['downloadUrl']}' data-loading-text='...' style='background: #2563eb; color: white; border: none; padding: 5px 10px; border-radius: 4px; text-decoration: none; font-size: 12px;'>{$downloadLabel}</a>";
@@ -1377,12 +1505,16 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
                     $updateLabel = $lang === 'it' ? "Aggiorna a v{$lib['latestEsc']}" : "Update to v{$lib['latestEsc']}";
                     $html .= "<a class='button button-small' href='{$lib['updateUrl']}' data-loading-text='...' style='background: #059669; color: white; border: none; padding: 5px 10px; border-radius: 4px; text-decoration: none; font-size: 12px;'>{$updateLabel}</a>";
                 }
-                $html .= "</div>";
-                $html .= "</div>";
             }
-
+            $html .= "</div>";
             $html .= "</div>";
         }
+
+        $html .= "<div style='margin-top: 10px; padding-top: 8px; border-top: 1px solid rgba(127,127,127,0.15); display: flex; gap: 8px; flex-wrap: wrap;'>";
+        $html .= "<a class='button button-small' href='{$checkUrlEsc}' data-loading-text='Verifica in corso...' style='background: #4b5563; color: white; border: none; padding: 5px 10px; border-radius: 4px; text-decoration: none; display: inline-block; font-size: 12px;'>{$checkLibUpdatesLabel}</a>";
+        $html .= "</div>";
+
+        $html .= "</div>";
 
         $html .= "</div>";
         $langJs = $lang === 'it' ? 'true' : 'false';
