@@ -76,6 +76,8 @@ class ModernEditorPlugin extends Plugin
             'onBlueprintCreated' => ['onBlueprintCreated', 0],
             'onAssetsInitialized' => ['onAssetsInitialized', 0],
             'onPagesInitialized' => ['onPagesInitialized', 0],
+            'onAdminSave' => ['onAdminSave', 0],
+            'onPageContentRaw' => ['onPageContentRaw', 0],
             // Grav 2.0 / Admin2: real REST endpoints. This is the correct
             // replacement for the old ?action=get_status/get_config query
             // params, which never reach PHP under Admin2 (it's a decoupled
@@ -2425,5 +2427,127 @@ body[data-theme='dark'] #modern-editor-status-card .modern-editor-inline-error {
                 : ($lang === 'it' ? "Download di turndown v{$version} non riuscito. Controlla il messaggio di errore nel pannello." : "Failed to download turndown v{$version}. Check the error message in the panel."),
             'html' => $this->getLocalStatusHtml($langOverride),
         ];
+    }
+
+    /**
+     * Normalizza gli iframe YouTube al salvataggio della pagina da Grav Admin.
+     */
+    public function onAdminSave(Event $event): void
+    {
+        $obj = $event['object'] ?? null;
+        if (!is_object($obj)) {
+            return;
+        }
+
+        // Supporta sia oggetti PageInterface (metodi rawMarkdown/setRawContent)
+        // sia strutture Data/Flex di Grav Admin (metodi get/set).
+        if (method_exists($obj, 'rawMarkdown') && method_exists($obj, 'setRawContent')) {
+            $raw = $obj->rawMarkdown();
+            if (!empty($raw) && (false !== strpos($raw, 'youtube') || false !== strpos($raw, 'youtu.be'))) {
+                $normalized = $this->normalizeVideoEmbeds($raw);
+                if ($normalized !== $raw) {
+                    $obj->setRawContent($normalized);
+                    if (method_exists($obj, 'rawMarkdown')) {
+                        $obj->rawMarkdown($normalized);
+                    }
+                }
+            }
+        }
+
+        if (method_exists($obj, 'get') && method_exists($obj, 'set')) {
+            $content = $obj->get('content');
+            if (!empty($content) && is_string($content) && (false !== strpos($content, 'youtube') || false !== strpos($content, 'youtu.be'))) {
+                $normalized = $this->normalizeVideoEmbeds($content);
+                if ($normalized !== $content) {
+                    $obj->set('content', $normalized);
+                }
+            }
+        }
+    }
+
+    /**
+     * Normalizza gli iframe YouTube quando il contenuto raw della pagina viene caricato/processato.
+     */
+    public function onPageContentRaw(Event $event): void
+    {
+        $page = $event['page'] ?? null;
+        if ($page && method_exists($page, 'getRawContent') && method_exists($page, 'setRawContent')) {
+            $content = $page->getRawContent();
+            if (!empty($content) && (false !== strpos($content, 'youtube') || false !== strpos($content, 'youtu.be'))) {
+                $normalized = $this->normalizeVideoEmbeds($content);
+                if ($normalized !== $content) {
+                    $page->setRawContent($normalized);
+                }
+            }
+        }
+    }
+
+    /**
+     * Converte eventuali parametri temporali (t= o start= in secondi o h/m/s) negli iframe
+     * di YouTube salvati nella pagina nel parametro start=SECONDI supportato dal player embed,
+     * garantendo che il video parta sempre dal minuto specificato sul frontend del sito.
+     */
+    public function normalizeVideoEmbeds(string $content): string
+    {
+        if (empty($content) || (false === strpos($content, 'youtube') && false === strpos($content, 'youtu.be'))) {
+            return $content;
+        }
+
+        return (string) preg_replace_callback(
+            '/(<iframe\s+[^>]*?src=["\'])([^"\']+)(["\'][^>]*?>)/i',
+            [$this, 'normalizeSingleIframeSrc'],
+            $content
+        );
+    }
+
+    /**
+     * Callback per normalizzare il sorgente di un singolo iframe YouTube.
+     */
+    public function normalizeSingleIframeSrc(array $matches): string
+    {
+        $prefix = $matches[1];
+        $src    = $matches[2];
+        $suffix = $matches[3];
+
+        if (!preg_match('/(?:youtube(?:-nocookie)?\.com\/embed\/|youtu\.be\/)/i', $src)) {
+            return $matches[0];
+        }
+
+        if (preg_match('/[?&#](?:t|start)=([a-zA-Z0-9]+)/i', $src, $tMatch)) {
+            $timeRaw = strtolower($tMatch[1]);
+            $seconds = $this->parseTimeToSeconds($timeRaw);
+            if ($seconds > 0) {
+                $cleanedSrc = preg_replace('/([?&])(?:t|start)=[a-zA-Z0-9]+(&?)/i', '$1', $src);
+                $cleanedSrc = rtrim($cleanedSrc, '?&');
+                $cleanedSrc = str_replace(['?&', '&&'], ['?', '&'], $cleanedSrc);
+                $delim      = (false === strpos($cleanedSrc, '?')) ? '?' : '&';
+                $newSrc     = $cleanedSrc . $delim . 'start=' . $seconds;
+                return $prefix . $newSrc . $suffix;
+            }
+        }
+
+        return $matches[0];
+    }
+
+    /**
+     * Converte stringhe temporali come 2824, 2824s, 47m4s, 1h2m3s in secondi interi.
+     */
+    private function parseTimeToSeconds(string $val): int
+    {
+        $val = trim($val);
+        if (preg_match('/^\d+s?$/i', $val)) {
+            return (int) rtrim($val, 'sS');
+        }
+        $seconds = 0;
+        if (preg_match('/(\d+)h/i', $val, $m)) {
+            $seconds += ((int) $m[1]) * 3600;
+        }
+        if (preg_match('/(\d+)m/i', $val, $m)) {
+            $seconds += ((int) $m[1]) * 60;
+        }
+        if (preg_match('/(\d+)s/i', $val, $m)) {
+            $seconds += (int) $m[1];
+        }
+        return $seconds;
     }
 }

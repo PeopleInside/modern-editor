@@ -124,6 +124,123 @@ function normalizeLinksInHtml(html) {
   }
 }
 
+function parseTimeParam(val) {
+  if (!val) return 0;
+  val = String(val).trim().toLowerCase();
+  if (/^\d+s?$/i.test(val)) {
+    return parseInt(val, 10);
+  }
+  let seconds = 0;
+  const h = val.match(/(\d+)h/i);
+  const m = val.match(/(\d+)m/i);
+  const s = val.match(/(\d+)s/i);
+  if (h) seconds += parseInt(h[1], 10) * 3600;
+  if (m) seconds += parseInt(m[1], 10) * 60;
+  if (s) seconds += parseInt(s[1], 10);
+  return seconds;
+}
+
+function parseYoutubeUrl(url) {
+  if (!url || typeof url !== 'string') return null;
+  const u = url.trim();
+  let videoId = '';
+  const shortMatch = u.match(/(?:https?:)?\/\/(?:www\.)?youtu\.be\/([a-zA-Z0-9_-]{11})/i);
+  if (shortMatch) {
+    videoId = shortMatch[1];
+  } else {
+    const vMatch = u.match(/(?:https?:)?\/\/(?:www\.|m\.)?youtube(?:-nocookie)?\.com\/.*[?&]v=([a-zA-Z0-9_-]{11})/i);
+    if (vMatch) {
+      videoId = vMatch[1];
+    } else {
+      const embedMatch = u.match(/(?:https?:)?\/\/(?:www\.|m\.)?youtube(?:-nocookie)?\.com\/(?:embed|v|shorts|live)\/([a-zA-Z0-9_-]{11})/i);
+      if (embedMatch) {
+        videoId = embedMatch[1];
+      }
+    }
+  }
+  if (!videoId) return null;
+
+  let timeSeconds = 0;
+  const tMatch = u.match(/[?&#](?:t|start)=([a-zA-Z0-9]+)/i);
+  if (tMatch) {
+    timeSeconds = parseTimeParam(tMatch[1]);
+  }
+
+  let embedUrl = 'https://www.youtube.com/embed/' + videoId;
+  const params = [];
+  if (timeSeconds > 0) {
+    params.push('start=' + timeSeconds);
+  }
+  const listMatch = u.match(/[?&#]list=([a-zA-Z0-9_-]+)/i);
+  if (listMatch) {
+    params.push('list=' + listMatch[1]);
+  }
+  if (params.length > 0) {
+    embedUrl += '?' + params.join('&');
+  }
+
+  return {
+    videoId: videoId,
+    startSeconds: timeSeconds,
+    embedUrl: embedUrl
+  };
+}
+
+function parseVimeoUrl(url) {
+  if (!url || typeof url !== 'string') return null;
+  const u = url.trim();
+  const m = u.match(/(?:https?:)?\/\/(?:www\.)?vimeo\.com\/(?:video\/)?([0-9]+)/i);
+  if (!m) return null;
+  const videoId = m[1];
+  let embedUrl = 'https://player.vimeo.com/video/' + videoId;
+  const tMatch = u.match(/[?&#]t=([a-zA-Z0-9]+)/i);
+  if (tMatch) {
+    embedUrl += '#t=' + tMatch[1];
+  }
+  return {
+    videoId: videoId,
+    embedUrl: embedUrl
+  };
+}
+
+function normalizeYoutubeIframeHtml(html) {
+  if (!html || typeof html !== 'string' || (!html.includes('youtube') && !html.includes('youtu.be'))) {
+    return html;
+  }
+  return html.replace(/(<iframe\s+[^>]*?src=["'])([^"']+)(["'][^>]*?>)/gi, (match, prefix, src, suffix) => {
+    if (!/(?:youtube(?:-nocookie)?\.com\/embed\/|youtu\.be\/)/i.test(src)) {
+      return match;
+    }
+    const tMatch = src.match(/[?&#](?:t|start)=([a-zA-Z0-9]+)/i);
+    if (tMatch) {
+      const seconds = parseTimeParam(tMatch[1]);
+      if (seconds > 0) {
+        let cleaned = src.replace(/([?&])(?:t|start)=[a-zA-Z0-9]+(&?)/i, '$1');
+        cleaned = cleaned.replace(/[?&]$/, '');
+        cleaned = cleaned.replace(/\?&|&&/, '&');
+        const delim = cleaned.includes('?') ? '&' : '?';
+        return prefix + cleaned + delim + 'start=' + seconds + suffix;
+      }
+    }
+    return match;
+  });
+}
+
+function separateMultipleIframesInHtml(html) {
+  if (!html || typeof html !== 'string' || (!html.includes('<iframe') && !html.includes('<video'))) {
+    return html;
+  }
+  // Se un paragrafo racchiude più di un iframe o video, separali preservando attributi (style di allineamento, class, ecc.)
+  return html.replace(/<p(\s+[^>]*)?>([\s\S]*?)<\/p>/gi, (match, pAttrs, inner) => {
+    const iframes = inner.match(/<(?:iframe|video)[\s\S]*?<\/(?:iframe|video)>/gi);
+    if (iframes && iframes.length > 1) {
+      const attrs = pAttrs || '';
+      return iframes.map((f) => '<p' + attrs + '>' + f + '</p>').join('\n');
+    }
+    return match;
+  });
+}
+
 function restoreMarkdownExtraAttrs(md) {
   if (!md || typeof md !== 'string') return md;
   let processed = md.replace(/(!?)\[([^\]]*)\]\(([^)]+)\)\{:?\s*([^}]+)\}/g, (match, isImg, text, urlAndTitle, attrsStr) => {
@@ -206,9 +323,22 @@ function mdToHtml(md) {
         }
       }
     });
-    return doc.body.innerHTML;
+    let resHtml = doc.body.innerHTML;
+    if (resHtml.includes('youtube') || resHtml.includes('youtu.be')) {
+      resHtml = normalizeYoutubeIframeHtml(resHtml);
+    }
+    if (resHtml.includes('<iframe') || resHtml.includes('<video')) {
+      resHtml = separateMultipleIframesInHtml(resHtml);
+    }
+    return resHtml;
   } catch (e) {
     console.error('Error post-processing markdown alerts', e);
+    if (html.includes('youtube') || html.includes('youtu.be')) {
+      html = normalizeYoutubeIframeHtml(html);
+    }
+    if (html.includes('<iframe') || html.includes('<video')) {
+      html = separateMultipleIframesInHtml(html);
+    }
     return html;
   }
 }
@@ -236,7 +366,7 @@ function isInsideHtmlContainer(node) {
   const htmlBlockNames = new Set([
     'DIV', 'SPAN', 'TABLE', 'THEAD', 'TBODY', 'TFOOT', 'TR', 'TD', 'TH', 'FONT',
     'SECTION', 'ARTICLE', 'MAIN', 'ASIDE', 'HEADER', 'FOOTER', 'FIGURE', 'FIGCAPTION',
-    'DETAILS', 'SUMMARY', 'NAV', 'FORM', 'FIELDSET', 'BLOCKQUOTE'
+    'DETAILS', 'SUMMARY', 'NAV', 'FORM', 'FIELDSET', 'BLOCKQUOTE', 'IFRAME', 'VIDEO', 'AUDIO'
   ]);
   while (curr && curr.nodeName !== 'BODY' && curr.nodeName !== '#document' && curr.nodeName !== 'HTML') {
     const name = curr.nodeName;
@@ -253,6 +383,12 @@ function isInsideHtmlContainer(node) {
 
 function htmlToMd(html) {
   if (!html) return '';
+  if (html.includes('youtube') || html.includes('youtu.be')) {
+    html = normalizeYoutubeIframeHtml(html);
+  }
+  if (html.includes('<iframe') || html.includes('<video')) {
+    html = separateMultipleIframesInHtml(html);
+  }
   html = normalizeLinksInHtml(html);
   if (!window.TurndownService) return html;
 
@@ -295,6 +431,13 @@ function htmlToMd(html) {
       .replace(/_/g, '\\_')
       .replace(/^(\d+)\. /g, '$1\\. ');
   };
+
+  turndownService.addRule('gravEmbeds', {
+    filter: ['iframe', 'video', 'audio'],
+    replacement: function (content, node) {
+      return '\n\n' + node.outerHTML + '\n\n';
+    }
+  });
 
   turndownService.addRule('markdownAlerts', {
     filter: function (node) {
@@ -627,7 +770,11 @@ function sanitizePastedHtml(html) {
   // 2. Strip presentational/foreign attributes from every remaining
   //    element, keeping only an allow-list of attributes that are actually
   //    useful here (including link/image/anchor targets, IDs, classes, plus a filtered `style`).
-  const ATTR_ALLOWLIST = new Set(['href', 'src', 'alt', 'title', 'width', 'height', 'target', 'rel', 'id', 'name', 'class']);
+  const ATTR_ALLOWLIST = new Set([
+    'href', 'src', 'alt', 'title', 'width', 'height', 'target', 'rel', 'id', 'name', 'class',
+    'allowfullscreen', 'allow', 'frameborder', 'referrerpolicy', 'loading', 'sandbox',
+    'controls', 'autoplay', 'loop', 'muted', 'poster', 'preload', 'playsinline'
+  ]);
   root.querySelectorAll('*').forEach((el) => {
     Array.from(el.attributes).forEach((attr) => {
       const name = attr.name.toLowerCase();
@@ -672,7 +819,14 @@ function sanitizePastedHtml(html) {
     parent.removeChild(div);
   });
 
-  return root.innerHTML;
+  let sanitized = root.innerHTML;
+  if (sanitized.includes('youtube') || sanitized.includes('youtu.be')) {
+    sanitized = normalizeYoutubeIframeHtml(sanitized);
+  }
+  if (sanitized.includes('<iframe') || sanitized.includes('<video')) {
+    sanitized = separateMultipleIframesInHtml(sanitized);
+  }
+  return sanitized;
 }
 
 // Minimal, self-contained Italian UI translation for TinyMCE. Registered
@@ -1463,7 +1617,57 @@ class TinyMCEField extends HTMLElement {
       menubar: cfg.menubar,
       plugins: cfg.plugins,
       toolbar: cfg.toolbar,
-      extended_valid_elements: 'a[href|target|rel|title|class|id|name|style|download|data-*],img[src|alt|title|width|height|class|id|style|data-*]',
+      media_live_embeds: true,
+      custom_elements: '~iframe',
+      extended_valid_elements: 'iframe[*],video[*],audio[*],source[*],track[*],p[style|class|id|align],span[style|class|id],img[*],figure[*],figcaption[*],a[*]',
+      media_url_resolver: (data, resolve) => {
+        return new Promise((res) => {
+          try {
+            const url = (data && data.url ? data.url : '').trim();
+            if (!url) {
+              if (typeof resolve === 'function') {
+                resolve({ html: '' });
+              }
+              res({ html: '' });
+              return;
+            }
+
+            const ytInfo = parseYoutubeUrl(url);
+            if (ytInfo) {
+              const iframeHtml = '<iframe src="' + ytInfo.embedUrl + '" width="560" height="314" allowfullscreen="allowfullscreen"></iframe>';
+              const ytResult = { html: iframeHtml };
+              if (typeof resolve === 'function') {
+                resolve(ytResult);
+              }
+              res(ytResult);
+              return;
+            }
+
+            const vimeoInfo = parseVimeoUrl(url);
+            if (vimeoInfo) {
+              const vimeoHtml = '<iframe src="' + vimeoInfo.embedUrl + '" width="560" height="314" allowfullscreen="allowfullscreen"></iframe>';
+              const vimeoResult = { html: vimeoHtml };
+              if (typeof resolve === 'function') {
+                resolve(vimeoResult);
+              }
+              res(vimeoResult);
+              return;
+            }
+
+            const defaultResult = { html: '' };
+            if (typeof resolve === 'function') {
+              resolve(defaultResult);
+            }
+            res(defaultResult);
+          } catch (err) {
+            const fallbackErr = { html: '' };
+            if (typeof resolve === 'function') {
+              resolve(fallbackErr);
+            }
+            res(fallbackErr);
+          }
+        });
+      },
       image_advtab: true,
       image_class_list: [
         { title: 'None', value: '' },
@@ -1559,6 +1763,20 @@ class TinyMCEField extends HTMLElement {
         img.align-center, img[style*="margin: auto"] {
           display: block !important;
           margin: 1rem auto !important;
+          clear: both !important;
+        }
+        .mce-preview-object.alignleft, iframe.alignleft {
+          float: left !important;
+          margin: 0.5em 1.5em 0.5em 0 !important;
+        }
+        .mce-preview-object.alignright, iframe.alignright {
+          float: right !important;
+          margin: 0.5em 0 0.5em 1.5em !important;
+        }
+        .mce-preview-object.aligncenter, iframe.aligncenter {
+          display: block !important;
+          margin-left: auto !important;
+          margin-right: auto !important;
           clear: both !important;
         }
       `,
@@ -1671,6 +1889,26 @@ class TinyMCEField extends HTMLElement {
         editor.on('PastePreProcess', (e) => {
           e.content = sanitizePastedHtml(e.content);
         });
+        editor.on('BeforeSetContent', (e) => {
+          if (e.content) {
+            if (e.content.includes('youtube') || e.content.includes('youtu.be')) {
+              e.content = normalizeYoutubeIframeHtml(e.content);
+            }
+            if (e.content.includes('<iframe') || e.content.includes('<video')) {
+              e.content = separateMultipleIframesInHtml(e.content);
+            }
+          }
+        });
+        editor.on('SaveContent', (e) => {
+          if (e.content) {
+            if (e.content.includes('youtube') || e.content.includes('youtu.be')) {
+              e.content = normalizeYoutubeIframeHtml(e.content);
+            }
+            if (e.content.includes('<iframe') || e.content.includes('<video')) {
+              e.content = separateMultipleIframesInHtml(e.content);
+            }
+          }
+        });
         // native fullscreen puts our shadow host (not the sink we relocated
         // to document.body) into the browser's top layer, so the sink has
         // to move back inside the shadow root while fullscreen is active —
@@ -1686,7 +1924,13 @@ class TinyMCEField extends HTMLElement {
         const notifyChange = (force = false) => {
           if (this._applying || !this._ready || !editor) return;
 
-          const html = editor.getContent();
+          let html = editor.getContent();
+          if (html.includes('youtube') || html.includes('youtu.be')) {
+            html = normalizeYoutubeIframeHtml(html);
+          }
+          if (html.includes('<iframe') || html.includes('<video')) {
+            html = separateMultipleIframesInHtml(html);
+          }
           const isMdEnabled = this._isMarkdownEnabled();
           let finalVal = isMdEnabled ? htmlToMd(html) : html;
           if (!isMdEnabled) {
