@@ -5,7 +5,7 @@ on:
     types: [published]
   push:
     tags:
-      - '*'  # Si attiva con qualsiasi push di un tag
+      - '*'
 
 jobs:
   build:
@@ -18,16 +18,23 @@ jobs:
 
       - name: Set version variable
         id: vars
-        run: echo "VERSION=${{ github.event.release.tag_name || github.ref_name }}" >> $GITHUB_ENV
+        run: |
+          # Determina la versione dal nome del rilascio o dal tag pushato
+          VER="${{ github.event.release.tag_name || github.ref_name }}"
+          echo "VERSION=$VER" >> $GITHUB_ENV
+          echo "✅ Versione rilevata per il build: $VER"
 
       - name: Create versioned plugin zip
         run: |
           # Crea un archivio zip pulito con il numero di versione nel nome.
           # git archive esclude automaticamente la cartella .git e rispetta 
           # eventuali regole di export-ignore nel file .gitattributes.
-          # Il prefisso "modern-editor/" assicura che i file vengano estratti 
-          # in una cartella dedicata, evitando di spargere file nella root di destinazione.
-          git archive --format=zip --output="modern-editor-${{ env.VERSION }}.zip" --prefix=modern-editor/ HEAD
+          FILENAME="modern-editor-${{ env.VERSION }}.zip"
+          git archive --format=zip --output="$FILENAME" --prefix=modern-editor/ HEAD
+          
+          # Verifica immediata che il file sia stato generato correttamente
+          echo "📦 Verifica generazione file ZIP:"
+          ls -la "$FILENAME"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -37,10 +44,19 @@ jobs:
           retention-days: 30
 
       - name: Attach ZIP to Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: modern-editor-${{ env.VERSION }}.zip
-          tag_name: ${{ env.VERSION }}
-          generate_release_notes: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # 1. Se la release non esiste ancora (es. workflow attivato solo da push del tag), la crea.
+          if ! gh release view "${{ env.VERSION }}" >/dev/null 2>&1; then
+            echo "⚠️ Release non trovata, creazione in corso..."
+            gh release create "${{ env.VERSION }}" --title "Release ${{ env.VERSION }}" --notes "Rilascio automatico della versione ${{ env.VERSION }}"
+          else
+            echo "✅ Release esistente rilevata, preparazione all'upload dell'asset..."
+          fi
+          
+          # 2. Carica (o sovrascrive) l'asset nella release.
+          # Il flag --clobber elimina preventivamente qualsiasi asset con lo stesso nome, 
+          # evitando definitivamente l'errore "404 Not Found" su update-a-release-asset.
+          echo "⬆️ Upload dell'asset in corso..."
+          gh release upload "${{ env.VERSION }}" "modern-editor-${{ env.VERSION }}.zip" --clobber
