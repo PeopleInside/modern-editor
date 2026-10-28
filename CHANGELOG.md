@@ -1,12 +1,19 @@
-# v2.1.8
-## 28/10/2026
 
-1. 
-   * **Fixed (YouTube Video Timestamp & Embed Playback)**: resolved an issue where YouTube videos with a timestamp parameter (e.g. `https://youtu.be/6HIef4HssWs?t=2824` or `?t=47m4s`) did not start at the specified minute when embedded. The timestamp is now automatically parsed and normalized into the standard `start=SECONDI` parameter supported by YouTube's embed player, both within the editor and during page save.
-   * **Fixed (Media URL Resolver & TinyMCE 7/8 Spec Compliance)**: implemented a dedicated, Promise-based `media_url_resolver` fully compliant with TinyMCE 7 and 8 specifications. Handles YouTube and Vimeo media URLs (including timestamp and playlist parameters) cleanly and provides a safe fallback without throwing the "Media embed handler threw unknown error" exception on unresolvable or custom media URLs.
-   * **Fixed (Separation of Multiple Embedded Videos)**: resolved layout collisions and HTML markup corruption when inserting or placing multiple videos within the same paragraph. Consecutive iframes or video blocks are now cleanly separated into distinct paragraphs (`separateMultipleIframesInHtml`), preserving alignment and spacing.
-   * **Improved (Media Elements & Attribute Preservation)**: expanded `extended_valid_elements` to support full `iframe`, `video`, `audio`, `source`, and `track` tags along with modern attributes (`allow`, `allowfullscreen`, `sandbox`, `referrerpolicy`, `loading`, `controls`, `autoplay`, `loop`, `muted`, `poster`, `preload`, `playsinline`), preventing them from being stripped during pasting or sanitization. Added responsive styling for media preview objects in editor stylesheets (`.mce-preview-object.alignleft/alignright/aligncenter`).
-   * **New (Backend Save Normalization)**: subscribed to Grav's `onAdminSave` and `onPageContentRaw` hooks to normalize any saved YouTube iframe sources server-side, ensuring consistent start time playback across the site frontend.
+# v2.1.8
+## 2026-10-28
+
+1. [](#bugfix)
+   * Fixed (YouTube Video Timestamp & Embed Playback): resolved an issue where YouTube videos with a timestamp parameter did not start at the specified minute when embedded.
+   * Fixed (Media URL Resolver & TinyMCE 7/8 Spec Compliance): implemented a Promise-based media URL resolver compliant with TinyMCE 7 and 8 specifications.
+   * Fixed (Separation of Multiple Embedded Videos): resolved layout collisions and HTML markup corruption when inserting multiple videos within the same paragraph.
+
+2. [](#improved)
+   * Improved media element handling and preservation of supported HTML attributes.
+   * Added responsive styling for media preview objects.
+
+3. [](#new)
+   * Added backend normalization of saved YouTube iframe sources.
+
 
 # v2.1.7
 ## 15/10/2026
