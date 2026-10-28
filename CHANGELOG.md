@@ -1,204 +1,204 @@
-
-# v2.1.8
-## 2026-10-28
-
+# 2.1.8
+## 2026-10-27
 1. [](#bugfix)
-   * Fixed (YouTube Video Timestamp & Embed Playback): resolved an issue where YouTube videos with a timestamp parameter did not start at the specified minute when embedded.
-   * Fixed (Media URL Resolver & TinyMCE 7/8 Spec Compliance): implemented a Promise-based media URL resolver compliant with TinyMCE 7 and 8 specifications.
-   * Fixed (Separation of Multiple Embedded Videos): resolved layout collisions and HTML markup corruption when inserting multiple videos within the same paragraph.
+   * Fixed: resolved an issue where YouTube videos with a timestamp parameter (e.g. `https://youtu.be/6HIef4HssWs?t=2824` or `?t=47m4s`) did not start at the specified minute when embedded. The timestamp is now automatically parsed and normalized into the standard `start=SECONDI` parameter supported by YouTube's embed player, both within the editor and during page save.
+2. [](#bugfix)
+   * Fixed: implemented a dedicated, Promise-based `media_url_resolver` fully compliant with TinyMCE 7 and 8 specifications. Handles YouTube and Vimeo media URLs (including timestamp and playlist parameters) cleanly and provides a safe fallback without throwing the "Media embed handler threw unknown error" exception on unresolvable or custom media URLs.
+3. [](#bugfix)
+   * Fixed: resolved layout collisions and HTML markup corruption when inserting or placing multiple videos within the same paragraph. Consecutive iframes or video blocks are now cleanly separated into distinct paragraphs (`separateMultipleIframesInHtml`), preserving alignment and spacing.
+4. [](#improved)
+   * Improved: expanded `extended_valid_elements` to support full `iframe`, `video`, `audio`, `source`, and `track` tags along with modern attributes (`allow`, `allowfullscreen`, `sandbox`, `referrerpolicy`, `loading`, `controls`, `autoplay`, `loop`, `muted`, `poster`, `preload`, `playsinline`), preventing them from being stripped during pasting or sanitization. Added responsive styling for media preview objects in editor stylesheets (`.mce-preview-object.alignleft/alignright/aligncenter`).
+5. [](#new)
+   * New: subscribed to Grav's `onAdminSave` and `onPageContentRaw` hooks to normalize any saved YouTube iframe sources server-side, ensuring consistent start time playback across the site frontend.
 
-2. [](#improved)
-   * Improved media element handling and preservation of supported HTML attributes.
-   * Added responsive styling for media preview objects.
-
+# 2.1.7
+## 2026-10-19
+1. [](#bugfix)
+   * Fixed: resolved an issue where opening and leaving pages or sub-pages in Grav Admin without making any edits prompted an "unsaved changes" warning. Previously, `notifyChange()` compared the Turndown-converted Markdown (`finalVal`) with the raw unconverted page string on disk (`this._value`), which almost always differed slightly due to whitespace, line endings, or list/link normalization, causing `valChanged` to evaluate to true on page load or on selection/caret changes (`NodeChange`). Furthermore, a fragile heuristic (Rule 7) in `_isMarkdownEnabled()` mistakenly treated sub-pages that started with HTML block elements (e.g. `<div class="...">` or `<p>`) and lacked `#` headings as raw HTML, causing mode flips and content mismatches. Initial editor setup now aligns `_value`, `_initialCleanValue`, `_lastEmittedValue`, and the light-DOM sink directly with the clean normalized baseline (`_baselineValue`), Rule 7 heuristic has been removed, and change/input events and dirty flags are strictly suppressed whenever current content matches `_baselineValue`.
+2. [](#new)
+   * New: the plugin settings status card now provides direct clickable external links to the official documentation and repositories for both Markdown helper libraries ([marked](https://marked.js.org/) and [turndown](https://github.com/mixmark-io/turndown)). The Markdown libraries box is now displayed in both Local and Cloud CDN modes so users can access documentation and status regardless of editor script source.
 3. [](#new)
-   * Added backend normalization of saved YouTube iframe sources.
+   * New: clicking "Verifica aggiornamenti" now checks and displays the status of both TinyMCE and the Markdown helper libraries (marked and turndown) in the confirmation dialog and status card, clearly indicating which components are up to date and which have new versions available on NPM. A dedicated "Verifica aggiornamenti librerie" button has also been added to the Markdown libraries box.
+4. [](#new)
+   * New: subscribed to Grav's `onSchedulerInitialized` event hook to register a daily background cron job (`runSchedulerJob`). When Grav's scheduler runs (e.g. via system cron or CLI), the plugin periodically checks for updates to TinyMCE, marked, and turndown without requiring an active browser admin session, and automatically downloads and applies updates when `auto_update` is enabled.
 
+# 2.1.6
+## 2026-10-19
+1. [](#bugfix)
+   * Fixed: resolved an issue where bold text (`<strong>`/`<b>`) inside styled paragraphs (e.g. `<p style="...">`) or spans was converted by Turndown into Markdown asterisks (`**`), which are ignored by browsers and Markdown engines inside HTML blocks and rendered as literal asterisks. On subsequent edit/save cycles, repeated Turndown escaping caused exponential backslash accumulation (e.g. `\*` -> `\\\*` -> `\\\\\\\*`). Turndown now preserves native `<strong>` and `<em>` tags inside HTML containers via dedicated `gravStrong` and `gravEmphasis` rules, `turndownService.escape()` prevents exponential backslash multiplying on escaped markers, and `mdToHtml()` automatically cleans up existing corrupted backslashes and converts Markdown asterisks inside HTML blocks into clean `<strong>` tags.
+2. [](#bugfix)
+   * Fixed: pressing Shift + Enter inside styled paragraphs (`<p style="...">`) or standard Markdown content now cleanly outputs `<br />` instead of trailing spaces (`  \n`). In HTML blocks, browsers ignore raw newlines without an explicit `<br>`, which previously caused soft line breaks to vanish on the rendered frontend page (forcing users to create full paragraphs with excessive vertical spacing). `<br />` is natively preserved across HTML and Markdown conversions and rendered with the intended compact spacing.
+3. [](#bugfix)
+   * Fixed: adding an empty line or spacer paragraph (such as `<p style="...">&nbsp;</p>` or `<p>&nbsp;</p>`) before images or between blocks is now properly preserved by Turndown rather than being stripped as an empty block and collapsed by newline cleanup. Because the content was previously stripped, the generated value matched baseline, preventing the "Save" button from activating. Empty paragraphs and intentional spacers are now preserved intact and immediately trigger change detection so changes can be saved.
+4. [](#improved)
+   * Improved: `sanitizePastedHtml` no longer strips intentional styled spacer paragraphs (e.g. `<p style="text-align: center;">&nbsp;</p>`) when pasting or loading content.
+5. [](#bugfix)
+   * Fixed: resolved an issue where selecting text and applying bold (or other formatting) on an HTML page where Markdown is disabled resulted in the text being wrapped in Markdown asterisks (`**test**`) and displaying literal asterisks instead of bold once published. The editor now actively detects page-level Markdown deactivation (from Grav's `header.process.markdown` toggle in the admin form, page frontmatter `process: markdown: false`, HTML template types, content structure heuristics, or field configurations) and operates in native HTML mode. Turndown conversion is bypassed on HTML/markdown-disabled pages so formatting is stored directly as clean HTML tags (`<strong>`, `<em>`, headings, links) and rendered correctly on the published page. Existing corrupted asterisks in HTML blocks are also automatically cleaned up into `<strong>` tags on editor load.
+6. [](#bugfix)
+   * Fixed: resolved an issue where deleting asterisks or applying bold/formatting in the editor did not enable the "Save" (Salva) button in the Grav Admin header. Overly strict baseline checks previously suppressed change events when formatted text matched an earlier baseline, and toolbar formatting commands (such as clicking Bold) could fire before TinyMCE's internal dirty flag updated. The editor now synchronizes real-time value changes to both the host element and a dedicated light-DOM form sink (`textarea.modern-editor-light-sink`), notifies form change listeners, and directly enables the admin Save button (`#titlebar-save`, `.and-save-button`, etc.) whenever formatting or content is altered.
 
-# v2.1.7
-## 15/10/2026
+# 2.1.5
+## 2026-10-07
+1. [](#new)
+   * New: introduced full support for bookmark anchor links, both for creation and management. Integrated TinyMCE's `anchor` plugin into default plugins and toolbar configurations (positioned right next to `link`). Users can insert bookmark anchors (`<a id="..."></a>`) anywhere in the document. When creating or editing links, the Link dialog automatically scans and lists solely user-created anchors from the editor content in the "Anchors" dropdown, allowing easy internal jump links (`#anchor`). Disabled `link_assume_external_targets` so internal anchor links (`#anchor`) are not erroneously prefixed with `https://`. Turndown conversion preserves anchor elements intact via a dedicated `gravAnchors` rule without stripping IDs or empty tags, and pasted anchors keep their `id` and `name` attributes.
+2. [](#improved)
+   * Improved: removed the disruptive warning banner and automatic Markdown deactivation. Grav pages natively support embedding HTML tags alongside Markdown via Parsedown; with Turndown rules now reliably preserving anchors, aligned images, inline styles, alerts, and classes, Markdown and HTML elements coexist transparently without mode flipping, unexpected banner popups, or save conflicts. Global Markdown support is respected strictly via the plugin/Grav settings.
+3. [](#new)
+   * New: added comprehensive support for image alignment allowing text to wrap naturally beside images. Features a contextual image toolbar with quick alignment actions (`imgalignleft`, `imgalignright`, `imgaligncenter`, `imgalignnone`) and `image_class_list` presets (`align-left`, `align-right`, `align-center`). Floating an image to the left or right applies both the standard CSS classes and inline styles (`float: left; margin: 0 1rem 1rem 0;` / `float: right; margin: 0 0 1rem 1rem;`), rendered responsively in the editor preview and cleanly preserved during HTML ↔ Markdown conversions.
 
-1. 
-   * **Fixed (False "Unsaved Changes" Alert on Leaving Pages & Sub-pages)**: resolved an issue where opening and leaving pages or sub-pages in Grav Admin without making any edits prompted an "unsaved changes" warning. Previously, `notifyChange()` compared the Turndown-converted Markdown (`finalVal`) with the raw unconverted page string on disk (`this._value`), which almost always differed slightly due to whitespace, line endings, or list/link normalization, causing `valChanged` to evaluate to true on page load or on selection/caret changes (`NodeChange`). Furthermore, a fragile heuristic (Rule 7) in `_isMarkdownEnabled()` mistakenly treated sub-pages that started with HTML block elements (e.g. `<div class="...">` or `<p>`) and lacked `#` headings as raw HTML, causing mode flips and content mismatches. Initial editor setup now aligns `_value`, `_initialCleanValue`, `_lastEmittedValue`, and the light-DOM sink directly with the clean normalized baseline (`_baselineValue`), Rule 7 heuristic has been removed, and change/input events and dirty flags are strictly suppressed whenever current content matches `_baselineValue`.
-   * **New (Direct Links to Markdown Libraries in Configuration)**: the plugin settings status card now provides direct clickable external links to the official documentation and repositories for both Markdown helper libraries (<a href="https://marked.js.org/" target="_blank">marked</a> and <a href="https://github.com/mixmark-io/turndown" target="_blank">turndown</a>). The Markdown libraries box is now displayed in both Local and Cloud CDN modes so users can access documentation and status regardless of editor script source.
-   * **New & Improved (Combined Update Checking for Editor & Libraries)**: clicking "Verifica aggiornamenti" now checks and displays the status of both TinyMCE and the Markdown helper libraries (marked and turndown) in the confirmation dialog and status card, clearly indicating which components are up to date and which have new versions available on NPM. A dedicated "Verifica aggiornamenti librerie" button has also been added to the Markdown libraries box.
-   * **New (Grav Scheduler / Cron Auto-Update Integration)**: subscribed to Grav's `onSchedulerInitialized` event hook to register a daily background cron job (`runSchedulerJob`). When Grav's scheduler runs (e.g. via system cron or CLI), the plugin periodically checks for updates to TinyMCE, marked, and turndown without requiring an active browser admin session, and automatically downloads and applies updates when `auto_update` is enabled.
+# 2.1.4
+## 2026-10-06
+1. [](#bugfix)
+   * Fixed: fixed cursor/caret jumping to the beginning of the editor (position 0,0) on every keystroke when typing or deleting text in Grav Admin2 (v2.1.27+). Resolved reactive feedback loop from Admin2 form listeners by ignoring incoming values matching current or last-emitted states, and preventing TinyMCE `setContent()` DOM resets while the editor has active focus.
+2. [](#new)
+   * New: automatic HTML detection with Markdown auto-disable and user warning banner. When opening a page that contains rich HTML tags, inline styles (`style=`), layout blocks (`<p style=...>`, `<div>`, `<span>`, `<table>`, `<img>`), Markdown conversion is automatically disabled for that page session. This prevents Turndown/Marked roundtrip conversions from corrupting HTML formatting, altering text alignment, or inserting unwanted Markdown asterisks/syntax around HTML elements. An alert banner informs the user with options to dismiss or force Markdown mode if desired.
+3. [](#bugfix)
+   * Fixed: Turndown image rule (`gravImages`) now preserves all inline CSS styles on `<img>` elements (not just `text-align`) as native HTML tags, preventing loss of sizing (`width`, `height` in styles) and layout styling.
 
-# v2.1.6
-## 01/10/2026
+# 2.1.3
+## 2026-09-04
+1. [](#bugfix)
+   * Fixed: opening a page in the admin without making any edits no longer marks the form as dirty or triggers an "unsaved changes" confirmation alert when navigating away or closing the page. Content initialization and internal HTML normalization during TinyMCE's setup phase no longer emit spurious `change` or `input` events; events are now dispatched strictly when real user modifications are present (`editor.isDirty()` is true and content differs from baseline).
 
-1. 
-   * **Fixed (Bold/Italic Inside HTML Blocks & Runaway Backslash Escaping)**: resolved an issue where bold text (`<strong>`/`<b>`) inside styled paragraphs (e.g. `<p style="...">`) or spans was converted by Turndown into Markdown asterisks (`**`), which are ignored by browsers and Markdown engines inside HTML blocks and rendered as literal asterisks. On subsequent edit/save cycles, repeated Turndown escaping caused exponential backslash accumulation (e.g. `\*` -> `\*` -> `\*`). Turndown now preserves native `<strong>` and `<em>` tags inside HTML containers via dedicated `gravStrong` and `gravEmphasis` rules, `turndownService.escape()` prevents exponential backslash multiplying on escaped markers, and `mdToHtml()` automatically cleans up existing corrupted backslashes and converts Markdown asterisks inside HTML blocks into clean `<strong>` tags.
-   * **Fixed (Soft Line Break / Shift + Enter)**: pressing Shift + Enter inside styled paragraphs (`<p style="...">`) or standard Markdown content now cleanly outputs `<br />` instead of trailing spaces (`  \n`). In HTML blocks, browsers ignore raw newlines without an explicit `<br>`, which previously caused soft line breaks to vanish on the rendered frontend page (forcing users to create full paragraphs with excessive vertical spacing). `<br />` is natively preserved across HTML and Markdown conversions and rendered with the intended compact spacing.
-   * **Fixed (Empty Line Spacing & Save Button Detection)**: adding an empty line or spacer paragraph (such as `<p style="...">&nbsp;</p>` or `<p>&nbsp;</p>`) before images or between blocks is now properly preserved by Turndown rather than being stripped as an empty block and collapsed by newline cleanup. Because the content was previously stripped, the generated value matched baseline, preventing the "Save" button from activating. Empty paragraphs and intentional spacers are now preserved intact and immediately trigger change detection so changes can be saved.
-   * **Improved (Pasted Content Sanitization)**: `sanitizePastedHtml` no longer strips intentional styled spacer paragraphs (e.g. `<p style="text-align: center;">&nbsp;</p>`) when pasting or loading content.
-   * **Fixed (Bold & Formatting on HTML Pages with Markdown Disabled)**: resolved an issue where selecting text and applying bold (or other formatting) on an HTML page where Markdown is disabled resulted in the text being wrapped in Markdown asterisks (`**test**`) and displaying literal asterisks instead of bold once published. The editor now actively detects page-level Markdown deactivation (from Grav's `header.process.markdown` toggle in the admin form, page frontmatter `process: markdown: false`, HTML template types, content structure heuristics, or field configurations) and operates in native HTML mode. Turndown conversion is bypassed on HTML/markdown-disabled pages so formatting is stored directly as clean HTML tags (`<strong>`, `<em>`, headings, links) and rendered correctly on the published page. Existing corrupted asterisks in HTML blocks are also automatically cleaned up into `<strong>` tags on editor load.
-   * **Fixed (Save Button Activation on Formatting & Editing)**: resolved an issue where deleting asterisks or applying bold/formatting in the editor did not enable the "Save" (Salva) button in the Grav Admin header. Overly strict baseline checks previously suppressed change events when formatted text matched an earlier baseline, and toolbar formatting commands (such as clicking Bold) could fire before TinyMCE's internal dirty flag updated. The editor now synchronizes real-time value changes to both the host element and a dedicated light-DOM form sink (`textarea.modern-editor-light-sink`), notifies form change listeners, and directly enables the admin Save button (`#titlebar-save`, `.and-save-button`, etc.) whenever formatting or content is altered.
+# 2.1.2
+## 2026-08-17
+1. [](#bugfix)
+   * Fixed: (#24): toolbar and formatting actions (such as changing text color, background color, font size, or alignment) did not notify Admin Next of unsaved changes, leaving the Save button disabled and preventing saving via Ctrl+S. TinyMCE's event listeners now monitor `ExecCommand`, `SetContent`, `NodeChange`, `input`, `Paste`, and `Cut` in addition to `change`/`keyup`, and Turndown now preserves inline styling and formatting tags (`<span>`, `<font>`, `<p>`, `<h1>`..`<h6>`, `<div>`, `<u>`, `<mark>`, `<sub>`, `<sup>`, `<small>`, `<ins>`) during Markdown ↔ HTML conversion instead of stripping them, allowing Grav Admin to detect the modified content and persist the styling on the page.
 
-# v2.1.5
-## 15/09/2026
+# 2.1.1
+## 2026-07-27
+1. [](#new)
+   * New: added GitHub configuration files (`.gitattributes`, `.github/codeql/codeql-config.yml`, and `.github/workflows/codeql.yml`) to instruct GitHub Linguist and CodeQL vulnerability scanners (both Default Setup and Advanced Setup) to ignore bundled third-party libraries (`assets/tinymce/`, `assets/vendor/`, and `vendor/`). This prevents false-positive vulnerability alerts and prevents third-party code from inflating repository language statistics.
+2. [](#bugfix)
+   * Fixed: links entered with a bare domain or relative path without a leading slash (e.g. `dominio.ext` or `www.dominio.ext`) are now automatically corrected to start with `https://` (e.g. `https://dominio.ext`). A URL is preserved as-is if it already starts with a protocol (`http://`, `https://`, `mailto:`, `tel:`, `page://`, etc.), an anchor (`#`), or a leading/relative slash (`/`, `./`, `../`). Added `link_assume_external_targets: 'https'` to TinyMCE's configuration and implemented automatic URL normalization during Markdown ↔ HTML conversion.
+3. [](#bugfix)
+   * Fixed: links configured to open in a new window (`target="_blank" rel="noopener"`) or containing extra attributes (classes, IDs, download) no longer render literally as `Link text{target="_blank" rel="noopener"}` on frontend pages when Grav's Markdown Extra setting is disabled. Instead of generating non-standard Markdown Extra `{...}` syntax for links and images with custom attributes, Turndown now outputs clean HTML tags (`<a href="..." target="_blank">...</a>` and `<img src="..." />`), which are natively passed through by all Markdown parsers (including Grav's default Parsedown engine) without printing literal attribute braces on the rendered page.
 
-1. 
-   * **New (Anchor Links Support)**: introduced full support for bookmark anchor links, both for creation and management. Integrated TinyMCE's `anchor` plugin into default plugins and toolbar configurations (positioned right next to `link`). Users can insert bookmark anchors (`<a id="..."></a>`) anywhere in the document. When creating or editing links, the Link dialog automatically scans and lists solely user-created anchors from the editor content in the "Anchors" dropdown, allowing easy internal jump links (`#anchor`). Disabled `link_assume_external_targets` so internal anchor links (`#anchor`) are not erroneously prefixed with `https://`. Turndown conversion preserves anchor elements intact via a dedicated `gravAnchors` rule without stripping IDs or empty tags, and pasted anchors keep their `id` and `name` attributes.
-   * **Improved (HTML & Markdown Coexistence & Banner Removal)**: removed the disruptive warning banner and automatic Markdown deactivation. Grav pages natively support embedding HTML tags alongside Markdown via Parsedown; with Turndown rules now reliably preserving anchors, aligned images, inline styles, alerts, and classes, Markdown and HTML elements coexist transparently without mode flipping, unexpected banner popups, or save conflicts. Global Markdown support is respected strictly via the plugin/Grav settings.
-   * **New (Image Text Alignment / Wrapping)**: added comprehensive support for image alignment allowing text to wrap naturally beside images. Features a contextual image toolbar with quick alignment actions (`imgalignleft`, `imgalignright`, `imgaligncenter`, `imgalignnone`) and `image_class_list` presets (`align-left`, `align-right`, `align-center`). Floating an image to the left or right applies both the standard CSS classes and inline styles (`float: left; margin: 0 1rem 1rem 0;` / `float: right; margin: 0 0 1rem 1rem;`), rendered responsively in the editor preview and cleanly preserved during HTML ↔ Markdown conversions.
+# 2.1.0
+## 2026-07-26
+1. [](#bugfix)
+   * Fixed: (#18 follow-up): a root-relative image/link path (e.g. `/index/_about/chris-lowe.jpg`) was, since 2.0.7's fix for the same issue, saved back as a full absolute URL on whatever domain Admin Next happened to be running on (e.g. a staging/prototype site), instead of being kept as entered. 2.0.7 disabled TinyMCE's `relative_urls` option to stop root-relative paths from being mangled into deeply "relativized" ones, but left `convert_urls` (a separate option, also on by default) enabled — and per TinyMCE's own behavior, `convert_urls` converts every URL to be relative *or absolute* depending on `relative_urls`, so once `relative_urls` was false it started resolving root-relative paths against the current page's own domain and saving that instead. This silently baked the editing environment's domain into the page content (breaking an edit-on-prototype/copy-to-live workflow) and defeated URL-rewriting plugins such as a CDN plugin, which only rewrite root-relative paths and pass already-absolute URLs through untouched. `convert_urls` is now also disabled, so TinyMCE leaves URLs completely untouched and stores the root-relative path exactly as typed.
 
-# v2.1.4
-## 01/09/2026
-
-1. 
-   * **Fixed (Issue #26)**: fixed cursor/caret jumping to the beginning of the editor (position 0,0) on every keystroke when typing or deleting text in Grav Admin2 (v2.1.27+). Resolved reactive feedback loop from Admin2 form listeners by ignoring incoming values matching current or last-emitted states, and preventing TinyMCE `setContent()` DOM resets while the editor has active focus.
-   * **New & Improved**: automatic HTML detection with Markdown auto-disable and user warning banner. When opening a page that contains rich HTML tags, inline styles (`style=`), layout blocks (`<p style=...>`, `<div>`, `<span>`, `<table>`, `<img>`), Markdown conversion is automatically disabled for that page session. This prevents Turndown/Marked roundtrip conversions from corrupting HTML formatting, altering text alignment, or inserting unwanted Markdown asterisks/syntax around HTML elements. An alert banner informs the user with options to dismiss or force Markdown mode if desired.
-   * **Fixed**: Turndown image rule (`gravImages`) now preserves all inline CSS styles on `<img>` elements (not just `text-align`) as native HTML tags, preventing loss of sizing (`width`, `height` in styles) and layout styling.
-
-# v2.1.3
-## 15/08/2026
-
-1. 
-   * **Fixed**: opening a page in the admin without making any edits no longer marks the form as dirty or triggers an "unsaved changes" confirmation alert when navigating away or closing the page. Content initialization and internal HTML normalization during TinyMCE's setup phase no longer emit spurious `change` or `input` events; events are now dispatched strictly when real user modifications are present (`editor.isDirty()` is true and content differs from baseline).
-
-# v2.1.2
-## 01/08/2026
-
-1. 
-   * **Fixed** (#24): toolbar and formatting actions (such as changing text color, background color, font size, or alignment) did not notify Admin Next of unsaved changes, leaving the Save button disabled and preventing saving via Ctrl+S. TinyMCE's event listeners now monitor `ExecCommand`, `SetContent`, `NodeChange`, `input`, `Paste`, and `Cut` in addition to `change`/`keyup`, and Turndown now preserves inline styling and formatting tags (`<span>`, `<font>`, `<p>`, `<h1>`..`<h6>`, `<div>`, `<u>`, `<mark>`, `<sub>`, `<sup>`, `<small>`, `<ins>`) during Markdown ↔ HTML conversion instead of stripping them, allowing Grav Admin to detect the modified content and persist the styling on the page.
-
-# v2.1.1
-## 15/07/2026
-
-1. 
-   * **New**: added GitHub configuration files (`.gitattributes`, `.github/codeql/codeql-config.yml`, and `.github/workflows/codeql.yml`) to instruct GitHub Linguist and CodeQL vulnerability scanners (both Default Setup and Advanced Setup) to ignore bundled third-party libraries (`assets/tinymce/`, `assets/vendor/`, and `vendor/`). This prevents false-positive vulnerability alerts and prevents third-party code from inflating repository language statistics.
-   * **Fixed**: links entered with a bare domain or relative path without a leading slash (e.g. `dominio.ext` or `www.dominio.ext`) are now automatically corrected to start with `https://` (e.g. `https://dominio.ext`). A URL is preserved as-is if it already starts with a protocol (`http://`, `https://`, `mailto:`, `tel:`, `page://`, etc.), an anchor (`#`), or a leading/relative slash (`/`, `./`, `../`). Added `link_assume_external_targets: 'https'` to TinyMCE's configuration and implemented automatic URL normalization during Markdown ↔ HTML conversion.
-   * **Fixed**: links configured to open in a new window (`target="_blank" rel="noopener"`) or containing extra attributes (classes, IDs, download) no longer render literally as `Link text{target="_blank" rel="noopener"}` on frontend pages when Grav's Markdown Extra setting is disabled. Instead of generating non-standard Markdown Extra `{...}` syntax for links and images with custom attributes, Turndown now outputs clean HTML tags (`<a href="..." target="_blank">...</a>` and `<img src="..." />`), which are natively passed through by all Markdown parsers (including Grav's default Parsedown engine) without printing literal attribute braces on the rendered page.
-
-# v2.1.0
-## 01/07/2026
-
-1. 
-   * **Fixed** (#18 follow-up): a root-relative image/link path (e.g. `/index/_about/chris-lowe.jpg`) was, since 2.0.7's fix for the same issue, saved back as a full absolute URL on whatever domain Admin Next happened to be running on (e.g. a staging/prototype site), instead of being kept as entered. 2.0.7 disabled TinyMCE's `relative_urls` option to stop root-relative paths from being mangled into deeply "relativized" ones, but left `convert_urls` (a separate option, also on by default) enabled — and per TinyMCE's own behavior, `convert_urls` converts every URL to be relative *or absolute* depending on `relative_urls`, so once `relative_urls` was false it started resolving root-relative paths against the current page's own domain and saving that instead. This silently baked the editing environment's domain into the page content (breaking an edit-on-prototype/copy-to-live workflow) and defeated URL-rewriting plugins such as a CDN plugin, which only rewrite root-relative paths and pass already-absolute URLs through untouched. `convert_urls` is now also disabled, so TinyMCE leaves URLs completely untouched and stores the root-relative path exactly as typed.
-
-# v2.0.9
-## 15/06/2026
-
-1. 
+# 2.0.9
+## 2026-07-25
+1. [](#improved)
    * Various security fixes
 
-# v2.0.8
-## 01/06/2026
+# 2.0.8
+1. [](#bugfix)
+   * Fixed: right-clicking inside the editor's text area always opened TinyMCE's own context menu (with e.g. a "Link" entry) instead of the browser's native one, and — since that custom menu isn't a real right-click on editable text — this also silently blocked the browser's own spell-check suggestions from ever appearing there. `contextmenu` is now disabled so the browser's native context menu is shown instead, and `browser_spellcheck: true` is set so TinyMCE marks its editing area as spell-checkable (it defaults to not spell-checkable), which is what makes the browser actually underline and offer suggestions for misspelled words in the text.
+2. [](#new)
+   * New: content pasted into the editor (typically copied from WordPress or other sites/editors) is now sanitized before it's inserted. Previously it was inserted as-is, carrying foreign presentational `class` attributes tied to CSS that doesn't exist on this site (e.g. WordPress' own `alignnone`/`size-full`/`wp-image-123` classes on `<img>`), noisy inline `style` attributes, and deeply nested `<div>` wrappers — including spacer-only `<div>&nbsp;</div>` elements — around what is otherwise just a sequence of paragraphs. Turndown (the HTML → Markdown converter used on save, see `htmlToMd()`) has no dedicated rule for arbitrary nested `<div>` soup, so this junk was passed through close to verbatim and produced broken/ugly Markdown full of stray blank lines and mismatched block structure. Pasted content is now cleaned on paste (`PastePreProcess`): spacer-only elements are dropped, presentational `class`/`id`/`data-*` attributes are stripped, only the meaningful `text-align` part of any inline `style` is preserved (e.g. for centered captions/images), and `<div>` wrappers are unwrapped into their content — so what lands in the editor is the same flat paragraph/image structure a user would get by typing or inserting it directly.
 
-1. 
-   * **Fixed**: right-clicking inside the editor's text area always opened TinyMCE's own context menu (with e.g. a "Link" entry) instead of the browser's native one, and — since that custom menu isn't a real right-click on editable text — this also silently blocked the browser's own spell-check suggestions from ever appearing there. `contextmenu` is now disabled so the browser's native context menu is shown instead, and `browser_spellcheck: true` is set so TinyMCE marks its editing area as spell-checkable (it defaults to not spell-checkable), which is what makes the browser actually underline and offer suggestions for misspelled words in the text.
-   * **New**: content pasted into the editor (typically copied from WordPress or other sites/editors) is now sanitized before it's inserted. Previously it was inserted as-is, carrying foreign presentational `class` attributes tied to CSS that doesn't exist on this site (e.g. WordPress' own `alignnone`/`size-full`/`wp-image-123` classes on `<img>`), noisy inline `style` attributes, and deeply nested `<div>` wrappers — including spacer-only `<div>&nbsp;</div>` elements — around what is otherwise just a sequence of paragraphs. Turndown (the HTML → Markdown converter used on save, see `htmlToMd()`) has no dedicated rule for arbitrary nested `<div>` soup, so this junk was passed through close to verbatim and produced broken/ugly Markdown full of stray blank lines and mismatched block structure. Pasted content is now cleaned on paste (`PastePreProcess`): spacer-only elements are dropped, presentational `class`/`id`/`data-*` attributes are stripped, only the meaningful `text-align` part of any inline `style` is preserved (e.g. for centered captions/images), and `<div>` wrappers are unwrapped into their content — so what lands in the editor is the same flat paragraph/image structure a user would get by typing or inserting it directly.
+# 2.0.7
+1. [](#bugfix)
+   * Fixed: the toolbar's "..." overflow button (shown when the toolbar doesn't fit in one row) opened a dropdown that closed itself almost instantly, making it unusable. TinyMCE's default `toolbar_mode: 'floating'` relies on detecting clicks "outside" the toolbar to auto-close the overflow drawer, but that detection isn't Shadow DOM-aware: since the editor runs inside a Shadow Root (it's a Web Component), the browser retargets `event.target` to the shadow host for any click TinyMCE's (outside-the-tree) listener observes, so every click — even inside the drawer itself — was misread as "outside" and closed it. Switched to `toolbar_mode: 'wrap'`, which shows overflow buttons on an extra toolbar row instead of a floating panel, sidestepping the faulty check entirely.
+2. [](#bugfix)
+   * Fixed: (#18): a root-relative image/link path (e.g. `/index/_about/photo.jpg`) entered in the Image or Link dialog came back mangled into an excessively "relativized" path (e.g. `../../../../../index/_about/photo.jpg`) and was saved to the page's markdown in that broken form. TinyMCE's `relative_urls` option defaults to `true` and, since `document_base_url` wasn't set either, rewrote the URL relative to the *Admin Next editing page's own URL* rather than the frontend page the content is actually rendered on. This happened to still resolve correctly on the frontend only when the real page's URL depth coincidentally matched the admin route's depth; it broke on other pages, and broke more visibly when combined with a third-party CDN/URL-rewriting plugin that concatenates its base URL onto the (already relative) path instead of resolving it, producing a malformed host (e.g. `https://cdn.example.tld../../../../../index/...`). `relative_urls` and `remove_script_host` are now both disabled, so URLs are stored exactly as entered.
 
-# v2.0.7
-## 15/05/2026
+# 2.0.6
+1. [](#improved)
+   * Related issue: [#16](https://github.com/PeopleInside/modern-editor/issues/16)
 
-1. 
-   * **Fixed**: the toolbar's "..." overflow button (shown when the toolbar doesn't fit in one row) opened a dropdown that closed itself almost instantly, making it unusable. TinyMCE's default `toolbar_mode: 'floating'` relies on detecting clicks "outside" the toolbar to auto-close the overflow drawer, but that detection isn't Shadow DOM-aware: since the editor runs inside a Shadow Root (it's a Web Component), the browser retargets `event.target` to the shadow host for any click TinyMCE's (outside-the-tree) listener observes, so every click — even inside the drawer itself — was misread as "outside" and closed it. Switched to `toolbar_mode: 'wrap'`, which shows overflow buttons on an extra toolbar row instead of a floating panel, sidestepping the faulty check entirely.
-   * **Fixed** (#18): a root-relative image/link path (e.g. `/index/_about/photo.jpg`) entered in the Image or Link dialog came back mangled into an excessively "relativized" path (e.g. `../../../../../index/_about/photo.jpg`) and was saved to the page's markdown in that broken form. TinyMCE's `relative_urls` option defaults to `true` and, since `document_base_url` wasn't set either, rewrote the URL relative to the *Admin Next editing page's own URL* rather than the frontend page the content is actually rendered on. This happened to still resolve correctly on the frontend only when the real page's URL depth coincidentally matched the admin route's depth; it broke on other pages, and broke more visibly when combined with a third-party CDN/URL-rewriting plugin that concatenates its base URL onto the (already relative) path instead of resolving it, producing a malformed host (e.g. `https://cdn.example.tld../../../../../index/...). `relative_urls` and `remove_script_host` are now both disabled, so URLs are stored exactly as entered.
+# 2.0.5
+1. [](#bugfix)
+   * Fixed: (#13): resolved page content corruption when Grav's global markdown setting (`system.pages.markdown.enabled`) is set to `false`.
+2. [](#new)
+   * New: added a `markdown_enabled` toggle to the plugin configuration to allow disabling markdown handling entirely (working in raw HTML mode) and preventing the browser from loading or running the `marked` and `turndown` helper libraries.
 
-# v2.0.6
-## 01/05/2026
+# 2.0.4
+1. [](#bugfix)
+   * Fixed: switching the editor to fullscreen mode hid TinyMCE's own toolbar and menu bar behind Admin Next's sticky page header (the dark bar with the page title/back button/Save button). TinyMCE's default "fullscreen" is CSS-only (`position: fixed` + `z-index: 1200` on the editor), which should already sit above the header's `z-index: 10` — but an ancestor further up Admin Next's layout (e.g. an animated/transformed page-transition wrapper around the header) establishes its own stacking context, which traps the editor's z-index locally and prevents it from ever being compared against the header's in the same stacking context, no matter how high it's set. An earlier attempt to fix this by injecting a global CSS override via Grav's `addInlineCss()` didn't help either, since Admin Next's decoupled SPA shell doesn't reliably render Grav's queued inline assets (the same limitation already noted for the TinyMCE/marked/turndown CDN URLs in 2.0.2/2.0.3 — see `loadMarkdownLibraries()`'s comments in `moderneditor.js`). The editor now sets TinyMCE's `fullscreen_native: true` option instead, which uses the real browser Fullscreen API: the editor is promoted to the browser's "top layer", a rendering layer that sits above every other element on the page unconditionally, independent of any ancestor's stacking context — so the header can no longer cover it regardless of how Admin Next's layout is structured.
 
-1. 
-   * Fix Source widow obscured by page title
-   * https://github.com/PeopleInside/modern-editor/issues/16
+# 2.0.3
+1. [](#bugfix)
+   * Fixed: with "Lingua editor / interfaccia admin" set to "Automatica (segui Grav)", the plugin stayed in English (both the status card's green banner and TinyMCE's own UI) on installs where Grav exposes the admin locale as a region-qualified BCP-47 tag (e.g. `it-IT`) rather than a bare `it` — which is the case for Admin Next's own `window.__GRAV_I18N.locale` store, and in some builds for `document.documentElement.lang` too. Every language check (client-side in `moderneditor.js`/`moderneditorstatus.js`, and server-side in `getUiLanguage()`/`langOverride()`) compared these values with strict equality against `'it'`, which silently failed even though the language *was* Italian. All of them now normalize a tag to its primary subtag (`it-IT` → `it`) before comparing. `window.__GRAV_I18N.locale` is also now read as the primary, most reliable client-side signal (it's the same source Grav itself uses to translate the rest of the Admin Next UI), ahead of the existing `window.__MODERN_EDITOR_ADMIN_LANG__` / `document.documentElement.lang` fallbacks. Forcing the language explicitly to "Italiano" already worked before this fix and is unaffected.
 
-# v2.0.5
-## 15/04/2026
+# 2.0.2
+1. [](#bugfix)
+   * Fixed: (#12): editing content containing Twig expressions with square brackets (e.g. `{{media['thumbs://...']...}}`) no longer breaks the page, since turndown's HTML→Markdown conversion no longer escapes `[` and `]` into `\[` `\]`.
+2. [](#bugfix)
+   * Fixed: the two markdown helper libraries (`marked`/`turndown`) could keep loading from the jsDelivr CDN even with "local" (self-hosted) mode selected. Their URLs now also travel through the same `/modern-editor/config` REST endpoint already used (and proven reliable) for the TinyMCE script URL, instead of relying solely on an inline `<script>` injection that doesn't always reach the page inside Admin Next's decoupled SPA shell.
+3. [](#new)
+   * New: added `alignleft`/`aligncenter`/`alignright`/`alignjustify` to the default toolbar (and auto-injected into any custom toolbar missing them, same as the existing forecolor/backcolor injection).
+4. [](#new)
+   * New: the visual editor's own UI (loading/error messages) and a compact, built-in Italian translation for TinyMCE's toolbar/menu labels are now shown automatically when the admin panel's language is Italian — no extra download or CDN call required.
 
-1. 
-   * **Fixed** (#13): resolved page content corruption when Grav's global markdown setting (`system.pages.markdown.enabled`) is set to `false`.
-   * **New**: added a `markdown_enabled` toggle to the plugin configuration to allow disabling markdown handling entirely (working in raw HTML mode) and preventing the browser from loading or running the `marked` and `turndown` helper libraries.
+# 2.0.1
+1. [](#new)
+   * New: the status card now shows a dedicated "Markdown libraries" section (only in local mode) with per-library install status, installed vs. latest available version, a manual "Download" button when missing, an "Update" button when a newer release is available, and any recorded download error — closing the gap where marked/turndown ran invisibly in the background with no UI feedback if a download silently failed. "Check for updates" now also checks marked/turndown against npm, not just TinyMCE. This reuses the existing `POST /modern-editor/download` REST endpoint (extended with a `library` field) rather than adding new routes.
+2. [](#new)
+   * New: when "local" (self-hosted) mode is active, the two markdown helper libraries (`marked` and `turndown`, used for markdown↔HTML conversion) are now downloaded and self-hosted alongside TinyMCE, avoiding their previously-hardcoded jsDelivr CDN calls entirely. Both are MIT licensed, so self-hosting them raises no licensing concern (unlike TinyMCE, see `NOTICE.md`); if the local copies are missing or a download fails, the editor gracefully falls back to loading them from the CDN — a failure is now also surfaced as an admin flash message and in the status card instead of failing silently. "Remove offline files" now also cleans up these self-hosted copies.
 
-# v2.0.4
-## 01/04/2026
-
-1. 
-   * **Fixed**: switching the editor to fullscreen mode hid TinyMCE's own toolbar and menu bar behind Admin Next's sticky page header (the dark bar with the page title/back button/Save button). TinyMCE's default "fullscreen" is CSS-only (`position: fixed` + `z-index: 1200` on the editor), which should already sit above the header's `z-index: 10` — but an ancestor further up Admin Next's layout (e.g. an animated/transformed page-transition wrapper around the header) establishes its own stacking context, which traps the editor's z-index locally and prevents it from ever being compared against the header's in the same stacking context, no matter how high it's set. An earlier attempt to fix this by injecting a global CSS override via Grav's `addInlineCss()` didn't help either, since Admin Next's decoupled SPA shell doesn't reliably render Grav's queued inline assets (the same limitation already noted for the TinyMCE/marked/turndown CDN URLs in 2.0.2/2.0.3 — see `loadMarkdownLibraries()`'s comments in `moderneditor.js`). The editor now sets TinyMCE's `fullscreen_native: true` option instead, which uses the real browser Fullscreen API: the editor is promoted to the browser's "top layer", a rendering layer that sits above every other element on the page unconditionally, independent of any ancestor's stacking context — so the header can no longer cover it regardless of how Admin Next's layout is structured.
-
-# v2.0.3
-## 15/03/2026
-
-1. 
-   * **Fixed**: with "Lingua editor / interfaccia admin" set to "Automatica (segui Grav)", the plugin stayed in English (both the status card's green banner and TinyMCE's own UI) on installs where Grav exposes the admin locale as a region-qualified BCP-47 tag (e.g. `it-IT`) rather than a bare `it` — which is the case for Admin Next's own `window.__GRAV_I18N.locale` store, and in some builds for `document.documentElement.lang` too. Every language check (client-side in `moderneditor.js`/`moderneditorstatus.js`, and server-side in `getUiLanguage()`/`langOverride()`) compared these values with strict equality against `'it'`, which silently failed even though the language *was* Italian. All of them now normalize a tag to its primary subtag (`it-IT` → `it`) before comparing. `window.__GRAV_I18N.locale` is also now read as the primary, most reliable client-side signal (it's the same source Grav itself uses to translate the rest of the Admin Next UI), ahead of the existing `window.__MODERN_EDITOR_ADMIN_LANG__` / `document.documentElement.lang` fallbacks. Forcing the language explicitly to "Italiano" already worked before this fix and is unaffected.
-
-# v2.0.2
-## 01/03/2026
-
-1. 
-   * **Fixed** (#12): editing content containing Twig expressions with square brackets (e.g. `{{media['thumbs://...']...}}`) no longer breaks the page, since turndown's HTML→Markdown conversion no longer escapes `[` and `]` into `\[` `\]`.
-   * **Fixed**: the two markdown helper libraries (`marked`/`turndown`) could keep loading from the jsDelivr CDN even with "local" (self-hosted) mode selected. Their URLs now also travel through the same `/modern-editor/config` REST endpoint already used (and proven reliable) for the TinyMCE script URL, instead of relying solely on an inline `<script>` injection that doesn't always reach the page inside Admin Next's decoupled SPA shell.
-   * **New**: added `alignleft`/`aligncenter`/`alignright`/`alignjustify` to the default toolbar (and auto-injected into any custom toolbar missing them, same as the existing forecolor/backcolor injection).
-   * **New**: the visual editor's own UI (loading/error messages) and a compact, built-in Italian translation for TinyMCE's toolbar/menu labels are now shown automatically when the admin panel's language is Italian — no extra download or CDN call required.
-
-# v2.0.1
-## 15/02/2026
-
-1. 
-   * **New**: the status card now shows a dedicated "Markdown libraries" section (only in local mode) with per-library install status, installed vs. latest available version, a manual "Download" button when missing, an "Update" button when a newer release is available, and any recorded download error — closing the gap where marked/turndown ran invisibly in the background with no UI feedback if a download silently failed. "Check for updates" now also checks marked/turndown against npm, not just TinyMCE. This reuses the existing `POST /modern-editor/download` REST endpoint (extended with a `library` field) rather than adding new routes.
-   * **New**: when "local" (self-hosted) mode is active, the two markdown helper libraries (`marked` and `turndown`, used for markdown↔HTML conversion) are now downloaded and self-hosted alongside TinyMCE, avoiding their previously-hardcoded jsDelivr CDN calls entirely. Both are MIT licensed, so self-hosting them raises no licensing concern (unlike TinyMCE, see `NOTICE.md`); if the local copies are missing or a download fails, the editor gracefully falls back to loading them from the CDN — a failure is now also surfaced as an admin flash message and in the status card instead of failing silently. "Remove offline files" now also cleans up these self-hosted copies.
-
-# v2.0.0
-## 01/02/2026
-
-1. 
-   * **Removed dead/legacy code**: the classic `?action=download_tinymce|check_updates|remove_tinymce_local|get_config|get_status` query-string handlers (~350 lines in `onPagesInitialized`) have been deleted. They duplicated logic already implemented once in `downloadTinyMceAction()` / `checkUpdatesAction()` / `removeTinyMceLocalAction()` / `getStatusData()` / `getConfigData()`, were unreachable given this plugin's Grav >=2.0.0/Admin Next-only requirement, carried the auth-bypass vulnerability described below, and were triggered via plain GET links with no CSRF protection. The Admin Next status-card UI already talks to the REST API (`/modern-editor/status|config|download|check-updates|remove`, POST + token-authenticated) directly and needed no changes.
-   * **Security fix (critical): unauthenticated action bypass.** The classic `?action=download_tinymce|check_updates|remove_tinymce_local|get_config|get_status` handlers contained a fallback (`if (!$isAuthorized && $this->isAdminContext()) { $isAuthorized = true; }`) that granted authorization based solely on the request's URL path starting with the admin route — with no check that the visitor was actually logged in. This allowed **any unauthenticated request** to trigger destructive/expensive actions (delete the local TinyMCE install, force a re-download/extraction from the npm registry, read plugin config). This entire code path has now been removed (see above).
+# 2.0.0
+1. [](#improved)
+   * **Removed dead/legacy code**: the classic `?action=download_tinymce|check_updates|remove_tinymce_local|get_config|get_status` query-string handlers (\~350 lines in `onPagesInitialized`) have been deleted. They duplicated logic already implemented once in `downloadTinyMceAction()` / `checkUpdatesAction()` / `removeTinyMceLocalAction()` / `getStatusData()` / `getConfigData()`, were unreachable given this plugin's Grav >=2.0.0/Admin Next-only requirement, carried the auth-bypass vulnerability described below, and were triggered via plain GET links with no CSRF protection. The Admin Next status-card UI already talks to the REST API (`/modern-editor/status|config|download|check-updates|remove`, POST + token-authenticated) directly and needed no changes.
+2. [](#bugfix)
+   * Security fix: The classic `?action=download_tinymce|check_updates|remove_tinymce_local|get_config|get_status` handlers contained a fallback (`if (!$isAuthorized && $this->isAdminContext()) { $isAuthorized = true; }`) that granted authorization based solely on the request's URL path starting with the admin route — with no check that the visitor was actually logged in. This allowed **any unauthenticated request** to trigger destructive/expensive actions (delete the local TinyMCE install, force a re-download/extraction from the npm registry, read plugin config). This entire code path has now been removed (see above).
+3. [](#improved)
    * Removed a dead/misleading `ZipArchive` availability check in the download routine that was never actually used (extraction uses `PharData` for the npm `.tgz` tarball) and could needlessly block updates on servers without the optional zip extension.
+4. [](#new)
    * Added support for **TinyMCE 8.0**: local downloads now fetch the release tarball from the npm registry instead of Tiny's account-gated download portal, which no longer reliably serves 8.x packages.
-   * **Fixed critical bug**: an "auto-heal" routine ran on every plain admin page load (any request without `?action=`) and silently re-downloaded/overwrote the local TinyMCE files with a hardcoded `7.4.0` whenever the installed version differed from it. This caused a freshly installed update (e.g. to `8.0.0`) to be immediately downgraded back to `7.4.0` on the very next page view/refresh, both in the browser and on disk. The routine now only auto-installs the default version when nothing is installed at all, and never touches an existing installation regardless of its version.
+5. [](#bugfix)
+   * Fixed: an "auto-heal" routine ran on every plain admin page load (any request without `?action=`) and silently re-downloaded/overwrote the local TinyMCE files with a hardcoded `7.4.0` whenever the installed version differed from it. This caused a freshly installed update (e.g. to `8.0.0`) to be immediately downgraded back to `7.4.0` on the very next page view/refresh, both in the browser and on disk. The routine now only auto-installs the default version when nothing is installed at all, and never touches an existing installation regardless of its version.
+6. [](#new)
    * Added a version-based cache-busting query string (`?v=<version>`) to the local editor script URL, and included the installed TinyMCE version in the cached page-blueprint hash, so the Admin content editor and the browser both pick up a newly installed version immediately instead of serving a stale cached copy/URL.
 
-# v1.1.9
-## 15/01/2026
-
-1. 
+# 1.1.9
+1. [](#bugfix)
    * Fixed custom admin paths and dynamic route detection for all admin panels (e.g. `/grav-admin`, `/panel`, `/control`).
+2. [](#bugfix)
    * Resolved non-JSON/HTML redirect responses gracefully to prevent `SyntaxError: Unexpected token <` in browser console.
+3. [](#improved)
    * Robust URL suffix matching fallback inside field Web Components.
 
-# v1.1.8
-## 01/01/2026
-
-1. 
+# 1.1.8
+1. [](#bugfix)
    * Security fix
+   * -
 
-# v1.1.6
-## 15/12/2025
-
-1. 
+# 1.1.6
+1. [](#bugfix)
    * Security fix
-   * **License Change**: Changed license from MIT to GNU General Public License v2.0 or later (GPLv2+) for full compatibility with TinyMCE 7's licensing requirements.
+2. [](#improved)
+   * License Change: Changed license from MIT to GNU General Public License v2.0 or later (GPLv2+) for full compatibility with TinyMCE 7's licensing requirements.
+3. [](#improved)
    * Updated `blueprints.yaml` to reflect the new GPL license.
+4. [](#improved)
    * Updated `README.md` with new licensing information.
 
-# v1.1.5
-## 01/12/2025
-
-1. 
+# 1.1.5
+1. [](#new)
    * Added full support for **Local Self-Hosting (Offline Mode)**, allowing the editor to be loaded directly from the local server without any external CDN calls.
+2. [](#improved)
    * Removed unrequested TinyMCE version selection; the editor is now streamlined to use standard stable v7.4.0 with an integrated automatic downloader.
+3. [](#new)
    * Added a dedicated dynamic **status card** in the Admin panel that shows the local TinyMCE version currently in use.
+4. [](#new)
    * Added a **Check for Updates** (Verifica aggiornamenti) button that queries the npm registry live for the latest stable TinyMCE version.
+5. [](#new)
    * Integrated an **Update Now** button in the status card to easily download and extract newer TinyMCE versions.
+6. [](#improved)
    * Improved Web Component behavior in `moderneditor.js` to dynamically fetch the plugin configurations and source selection asynchronously via a custom JSON endpoint in PHP.
 
-# v1.1.0
-## 15/11/2025
-
-1. 
+# 1.1.0
+1. [](#improved)
    * Hid the TinyMCE 7 "Get all features" promotion button.
+2. [](#improved)
    * Fully translated all developer comments, user-facing loading/error states, and code annotations from Italian to English.
+3. [](#improved)
    * Completely translated, updated, and modernized the `README.md` in English.
+4. [](#improved)
    * Handed over maintainership/authorship details to PeopleInside.
 
-# v1.0.0
-## 01/11/2025
-
-1. 
+# 1.0.0
+1. [](#new)
    * Renamed plugin from `tinymce-editor` to `modern-editor` to avoid collision with GPM plugins of the same name.
+2. [](#new)
    * Changed the "content" field override mechanism from runtime PHP rewrite to dynamic file-based blueprint generation via `onGetPageBlueprints` conforming to Grav's standard `@extends` system.
+3. [](#improved)
    * Overrides are now automatically generated for EVERY template in the active theme, rather than just the default.
+4. [](#improved)
    * Visual editor (TinyMCE via CDN) integrated as a Custom Field using a Web Component for Admin Next.
+5. [](#improved)
    * No manual theme changes are required.
